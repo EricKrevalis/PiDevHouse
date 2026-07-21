@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom", "esnext"]
+  },
+  "tasks": {
+    "start": "deno run -A src/main.ts",
+    "check": "deno check src/main.ts",
+    "test": "deno test -A"
+  }
+}

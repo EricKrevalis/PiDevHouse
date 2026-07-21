@@ -1,0 +1,16 @@
+{
+  "name": "@pidev/core",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "deno check --watch src/main.ts",
+    "start": "deno run -A src/main.ts",
+    "check": "deno check src/main.ts",
+    "test": "deno test -A"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.80.10",
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10"
+  }
+}
