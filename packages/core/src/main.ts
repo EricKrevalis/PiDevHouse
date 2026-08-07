@@ -1,139 +1,34 @@
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  SessionManager,
-  SettingsManager,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  type Agent,
-  createProductOwnerAgent,
-  createStoryAgents,
-  getStoryIds,
-} from "./agents.ts";
-import { createSandboxedBashTool } from "./tools/bash.ts";
-import { scopeToolCalls } from "./tools/scope.ts";
-import { createOllamaRuntime, ModelEnv } from "./utils/ollama.ts";
+import { STORIES_PATH } from "./models/agents.ts";
+import { ProductOwnerAgent } from "./agents/po.ts";
+import { runStory } from "./loop/loop.ts";
+import { writeStatus } from "./logging/log.ts";
+import { RunTimer } from "./models/timer.ts";
+import type { Workspace } from "./models/workspace.ts";
+import { readStories, writeStoriesFile } from "./tools/stories.ts";
+import { createOllamaRuntime } from "./utils/ollama.ts";
 
-interface Workspace {
-  logDir: string;
-  workspaceDir: string;
-}
-
-const STORIES_PATH = "stories.json";
 const OUTPUT_ROOT = fileURLToPath(new URL("../../../output", import.meta.url));
-const textEncoder = new TextEncoder();
-
-function writeOutput(message: string): void {
-  Deno.stdout.writeSync(textEncoder.encode(message));
-}
-
-function writeStatus(message: string): void {
-  Deno.stderr.writeSync(textEncoder.encode(message));
-}
-
-function formatToolDetails(toolName: string, args: unknown): string {
-  if (!args || typeof args !== "object") return "";
-
-  const values = args as Record<string, unknown>;
-  if (toolName === "bash" && typeof values.command === "string") {
-    const command = values.command.slice(0, 500) +
-      (values.command.length > 500 ? "..." : "");
-    return `\n  $ ${command}`;
-  }
-
-  const path = values.path ?? values.file_path;
-  return path ? `\n  path: ${path}` : "";
-}
 
 async function createRunDirectory(): Promise<Workspace> {
-  const timestamp = new Date().toISOString().replaceAll(":", "-");
+  const timestamp = new Date()
+    .toLocaleString("sv-SE", { timeZone: "Europe/Berlin" })
+    .replace(" ", "T")
+    .replaceAll(":", "-");
   const runDir = resolve(OUTPUT_ROOT, timestamp);
+
   const workspaceDir = resolve(runDir, "src");
   const logDir = resolve(runDir, "log");
+  const testDir = resolve(runDir, "test");
+
   await Promise.all([
     Deno.mkdir(workspaceDir, { recursive: true }),
     Deno.mkdir(logDir, { recursive: true }),
+    Deno.mkdir(testDir, { recursive: true }),
   ]);
-  return { logDir, workspaceDir };
-}
 
-async function runAgent(
-  agent: Agent,
-  workspace: Workspace,
-  modelEnv: ModelEnv,
-  story?: number,
-): Promise<void> {
-  const storyMsg = story ? `[Story:${story}] ` : "";
-  writeStatus(`\n=== ${storyMsg}${agent.name} ===\nStatus: starting\n`);
-
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: workspace.workspaceDir,
-    agentDir: workspace.workspaceDir,
-    systemPrompt: agent.systemPrompt,
-  });
-  await resourceLoader.reload();
-
-  const { session } = await createAgentSession({
-    cwd: workspace.workspaceDir,
-    model: modelEnv.model,
-    modelRuntime: modelEnv.modelRuntime,
-    thinkingLevel: "off",
-    tools: agent.tools,
-    customTools: agent.tools.includes("bash")
-      ? [
-        createSandboxedBashTool(
-          workspace.workspaceDir,
-        ) as unknown as ToolDefinition,
-      ]
-      : [],
-    resourceLoader,
-    sessionManager: SessionManager.inMemory(),
-    settingsManager: SettingsManager.inMemory(),
-  });
-
-  scopeToolCalls(session.agent, workspace.workspaceDir);
-
-  let pendingLogWrite: Promise<void> = Promise.resolve();
-  let responseStarted = false;
-  session.subscribe((event) => {
-    pendingLogWrite = pendingLogWrite.then(() =>
-      Deno.writeTextFile(
-        resolve(workspace.logDir, "outputlog.jsonl"),
-        `${JSON.stringify(event)}\n`,
-        { append: true },
-      )
-    );
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "text_delta"
-    ) {
-      if (!responseStarted) {
-        writeOutput(`\n${storyMsg}${agent.name} response:\n\n`);
-        responseStarted = true;
-      }
-      writeOutput(event.assistantMessageEvent.delta);
-    } else if (event.type === "tool_execution_start") {
-      writeStatus(
-        `\n${storyMsg}[${agent.name}] [tool]: ${event.toolName}${
-          formatToolDetails(
-            event.toolName,
-            event.args,
-          )
-        }\n`,
-      );
-    }
-  });
-
-  try {
-    await session.prompt(agent.userPrompt);
-    await pendingLogWrite;
-    writeStatus(`\n${storyMsg}Status: ${agent.name} completed\n`);
-  } finally {
-    session.dispose();
-  }
+  return { logDir, workspaceDir, testDir };
 }
 
 async function main(): Promise<void> {
@@ -141,23 +36,59 @@ async function main(): Promise<void> {
     "Build an interactive web todo app.";
   const workspace = await createRunDirectory();
   const runtime = await createOllamaRuntime();
+  const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
+  const timer = new RunTimer();
 
-  await runAgent(
-    createProductOwnerAgent(userRequest, STORIES_PATH),
+  await new ProductOwnerAgent(userRequest, STORIES_PATH).run(
     workspace,
     runtime,
+    timer,
   );
 
-  const storyIds = getStoryIds(
-    await Deno.readTextFile(resolve(workspace.workspaceDir, STORIES_PATH)),
-  );
-  for (const storyId of storyIds) {
-    for (const agent of createStoryAgents(storyId, STORIES_PATH)) {
-      await runAgent(agent, workspace, runtime, storyId);
+  const initialState = await readStories(storiesPath);
+  if (initialState === null) {
+    writeStatus(
+      `\n=== Run blocked in ${timer.formatElapsed()} ===\nProduct Owner failed: ${initialState}\n`,
+    );
+    return;
+  }
+  let stories = initialState.stories;
+
+  while (stories.some((story) => story.status === "todo")) {
+    const story = stories.find(
+      (candidate) =>
+        candidate.status === "todo" &&
+        candidate.blockedBy.every(
+          (dependency) =>
+            stories.find((item) => item.id === dependency)?.status === "tested",
+        ),
+    );
+    if (!story) {
+      writeStatus(
+        `\n=== Run incomplete in ${timer.formatElapsed()} ===\nRemaining stories wait on untested dependencies\n`,
+      );
+      return;
     }
+    await runStory(story.id, workspace, runtime, timer);
+    const freshState = await readStories(storiesPath);
+    if (freshState === null) {
+      writeStatus(
+        `\n=== Run blocked in ${timer.formatElapsed()} ===\nstories.json invalid\n`,
+      );
+      return;
+    }
+    stories = freshState.stories;
   }
 
-  writeStatus(`\n=== Run completed ===\nOutput: ${workspace.workspaceDir}\n`);
+  if (stories.every((story) => story.status === "tested")) {
+    writeStatus(
+      `\n=== Run completed in ${timer.formatElapsed()} ===\nOutput: ${workspace.workspaceDir}\n`,
+    );
+  } else {
+    writeStatus(
+      `\n=== Run incomplete in ${timer.formatElapsed()} ===\nOne or more stories were not tested\n`,
+    );
+  }
 }
 
 await main();
