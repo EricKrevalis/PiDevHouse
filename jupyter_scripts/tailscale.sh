@@ -19,15 +19,23 @@ WRAP
   fi
 }
 
+daemon_alive() {
+  ! "$BIN/tailscale" status 2>&1 | grep -qi "connect to local tailscaled"
+}
+
 start_daemon() {
   pkill -f "tailscaled.*$SOCK" 2>/dev/null || true
+  rm -f "$SOCK"
   nohup "$BIN/tailscaled" --tun=userspace-networking --socket="$SOCK" --state="$DIR/state" >"$DIR/daemon.log" 2>&1 &
   disown
-  for _ in $(seq 1 10); do [ -S "$SOCK" ] && break; sleep 1; done
+  for _ in $(seq 1 20); do daemon_alive && return 0; sleep 1; done
+  return 1
 }
 
 install
-[ -S "$SOCK" ] && [ "${1:-}" != "--update" ] || start_daemon
+if [ "${1:-}" = "--update" ] || ! daemon_alive; then
+  start_daemon
+fi
 
 "$BIN/tailscale" up --hostname=jupyter
 
