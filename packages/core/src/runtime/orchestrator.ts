@@ -25,7 +25,7 @@ async function getValidationScore(
     : story.testResult.score;
 }
 
-export async function runStory(
+export async function runStories(
   storyId: number,
   workspace: Workspace,
   modelProvider: ModelProvider,

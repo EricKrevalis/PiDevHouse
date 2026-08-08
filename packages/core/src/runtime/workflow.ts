@@ -6,9 +6,9 @@ import { OllamaProvider } from "../modules/model/providers/ollamaProvider.model.
 import type { Workspace } from "../modules/model/workspace.model.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { readStories } from "../modules/tools/story/stories.ts";
-import { runStory } from "./orchestrator.ts";
+import { runStories } from "./orchestrator.ts";
 import { Story } from "../modules/model/story.model.ts";
-import { RunTimer } from "./timer.ts";
+import { Timer } from "./timer.ts";
 
 const OUTPUT_ROOT = fileURLToPath(
   new URL("../../../../output", import.meta.url),
@@ -36,12 +36,12 @@ async function createRunDirectory(): Promise<Workspace> {
 
 export async function runWorkflow(
   userRequest = Deno.args.join(" ") || "Build an interactive web todo app.",
-): Promise<void> {
+): Promise<number> {
   const workspace = await createRunDirectory();
   const modelProvider = await OllamaProvider.create();
   const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
 
-  const timer = new RunTimer();
+  const timer = new Timer();
   timer.start();
   try {
     await new ProductOwnerAgent(
@@ -56,7 +56,7 @@ export async function runWorkflow(
       AgentEventService.getInstance().emit(
         `\nProduct Owner failed: stories.json missing or invalid\n`,
       );
-      return;
+      return 1;
     }
     let stories = initialState.stories;
 
@@ -68,7 +68,7 @@ export async function runWorkflow(
             (dependency: Story) =>
               // TODO this may be to strict
               stories.find((item) => item.id === dependency)?.status ===
-                "tested",
+              "tested",
           ),
       );
 
@@ -76,15 +76,16 @@ export async function runWorkflow(
         AgentEventService.getInstance().emit(
           `\n=== Run incomplete ===\nRemaining stories wait on untested dependencies\n`,
         );
-        return;
+        return 1;
       }
-      await runStory(story.id, workspace, modelProvider);
+      AgentEventService.getInstance().setStoryCount(stories.length);
+      await runStories(story.id, workspace, modelProvider);
       const freshState = await readStories(storiesPath);
       if (freshState === null) {
         AgentEventService.getInstance().emit(
           `\n=== Run blocked ===\nstories.json invalid\n`,
         );
-        return;
+        return 1;
       }
       stories = freshState.stories;
     }
@@ -93,10 +94,12 @@ export async function runWorkflow(
       AgentEventService.getInstance().emit(
         `\n=== Run completed ===\nOutput: ${workspace.workspaceDir}\n`,
       );
+      return 0;
     } else {
       AgentEventService.getInstance().emit(
         `\n=== Run incomplete     ===\nOne or more stories were not tested\n`,
       );
+      return 1;
     }
   } finally {
     timer.stop();

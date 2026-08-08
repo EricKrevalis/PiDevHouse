@@ -1,26 +1,22 @@
-const textEncoder = new TextEncoder();
-
-export class RunTimer {
+export class Timer {
   private startTime = Date.now();
   private timer: ReturnType<typeof setInterval> | undefined;
 
   start(): void {
     this.startTime = Date.now();
-    this.timer = setInterval(() => this.tick(), 1000);
+    this.timer = setInterval(() => {
+      Deno.stdout.writeSync(
+        new TextEncoder().encode(
+          `\r\x1b[K\x1b[36melapsed: ${this.format()}\x1b[0m\n`,
+        ),
+      );
+    }, 10_000);
   }
 
   stop(): void {
     if (this.timer === undefined) return;
     clearInterval(this.timer);
     this.timer = undefined;
-    this.tick();
-    Deno.stdout.writeSync(textEncoder.encode("\n"));
-  }
-
-  private tick(): void {
-    Deno.stdout.writeSync(
-      textEncoder.encode(`\r\x1b[Kelapsed: ${this.format()}`),
-    );
   }
 
   private format(): string {

@@ -11,6 +11,10 @@ const COLOR = "\x1b[36m";
 const RESET = "\x1b[0m";
 let instance: AgentEventService | undefined;
 
+function writeOutput(message: string): void {
+  Deno.stdout.writeSync(textEncoder.encode(message));
+}
+
 export class AgentEventService {
   static getInstance(): AgentEventService {
     instance ??= new AgentEventService();
@@ -19,8 +23,19 @@ export class AgentEventService {
 
   private constructor(private readonly isApi = false) {}
 
-  private writeOutput(message: string): void {
-    Deno.stdout.writeSync(textEncoder.encode(message));
+  private storyCount?: number;
+
+  setStoryCount(count: number): void {
+    this.storyCount = count;
+  }
+
+  private formatContext(story?: number, iteration?: number): string {
+    return [
+      story && `story ${story}${this.storyCount ? `/${this.storyCount}` : ""}`,
+      iteration && `iter ${iteration}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
 
   private formatToolDetails(toolName: string, args: unknown): string {
@@ -39,20 +54,17 @@ export class AgentEventService {
   }
 
   run(agent: Agent, session: AgentSession, story?: number, iteration?: number) {
-    const context = [
-      story && `story ${story}`,
-      iteration && `iter ${iteration}`,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-
+    const emit = (content: string) =>
+      this.emit(content, agent, story, iteration);
+    const context = this.formatContext(story, iteration);
     const label = `${COLOR}${
       context ? `${context} · ${agent.name}` : agent.name
     }${RESET}`;
-    const thinking = new ThinkingAnimation((c) => this.emit(c), label);
+    const thinking = new ThinkingAnimation(label);
 
-    this.emit(`${label}: starting...\n`);
+    emit("starting...\n");
     let isStreamBeginning = true;
+    let streamNeedsNewline = false;
 
     session.subscribe((event: AgentSessionEvent) => {
       if (!(
@@ -72,22 +84,29 @@ export class AgentEventService {
           } else if (updateType == "text_delta") {
             thinking.stop();
             if (isStreamBeginning) {
-              this.emit(`${label}:\n`);
+              emit("\n");
               isStreamBeginning = false;
             }
-            this.emit(event.assistantMessageEvent.delta);
+            const delta = event.assistantMessageEvent.delta;
+            this.emit(delta);
+            streamNeedsNewline = !delta.endsWith("\n");
           }
           break;
         case "message_end":
           thinking.stop();
-          if (!isStreamBeginning) {
-            isStreamBeginning = true;
+          if (streamNeedsNewline) {
+            streamNeedsNewline = false;
+            writeOutput("\n");
           }
+          isStreamBeginning = true;
           break;
         case "tool_execution_start":
           thinking.stop();
-          this.emit(
-            `${label}: ${event.toolName}${this.formatToolDetails(event.toolName, event.args)}\n`,
+          emit(
+            `${event.toolName}${this.formatToolDetails(
+              event.toolName,
+              event.args,
+            )}\n`,
           );
           break;
         case "tool_execution_end":
@@ -101,11 +120,17 @@ export class AgentEventService {
     });
   }
 
-  emit(content: string) {
+  emit(content: string, agent?: Agent, story?: number, iteration?: number) {
     if (!this.isApi) {
-      this.writeOutput(content);
+      const context = this.formatContext(story, iteration);
+      const label =
+        agent &&
+        `${COLOR}${
+          context ? `${context} · ${agent.name}` : agent.name
+        }${RESET}: `;
+      writeOutput(label ? `${label}${content}` : content);
     }
-    broadcast(content.replace(/\x1b\[[0-9;]*[a-zA-Z]|\r/g, ""));
+    broadcast(content);
   }
 
   private writeLog(
@@ -138,18 +163,15 @@ class ThinkingAnimation {
     "thinking...",
   ];
 
-  constructor(
-    private readonly emit: (content: string) => void,
-    private readonly label: string,
-  ) {}
+  constructor(private readonly label: string) {}
 
   start(): void {
     this.stop();
     this.index = 0;
-    this.emit(`\r${this.label}: ${this.frames[0]}`);
+    writeOutput(`\r\x1b[K${this.label}: ${this.frames[0]}`);
     this.timer = setInterval(() => {
       this.index = (this.index + 1) % this.frames.length;
-      this.emit(`\r\x1b[K${this.label}: ${this.frames[this.index]}`);
+      writeOutput(`\r\x1b[K${this.label}: ${this.frames[this.index]}`);
     }, 300);
   }
 
@@ -157,6 +179,6 @@ class ThinkingAnimation {
     if (this.timer === undefined) return;
     clearInterval(this.timer);
     this.timer = undefined;
-    this.emit("\r\x1b[K");
+    writeOutput("\r\x1b[K");
   }
 }

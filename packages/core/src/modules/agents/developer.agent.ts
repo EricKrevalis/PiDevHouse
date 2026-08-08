@@ -33,7 +33,11 @@ You are the developer. Deliver story ${storyId} with the smallest complete chang
 5. Do not create or modify tests. Run the smallest relevant existing checks available.
 6. Set the status to "implemented" only when the implementation is complete and the relevant checks pass. Leave it "in_progress" if work or verification remains.
 `,
-      userPrompt: `Implement story ${storyId}.`,
+      userPrompt: `Implement story ${storyId}. A reviewer will check your work. Before finishing:
+- Run the smallest relevant existing checks and make sure they pass
+- Read your own diff; remove debug prints, dead code, and unrelated changes
+- Keep the diff minimal and match the surrounding code style
+- If you made a judgment call or deferred something, state it in one line so the reviewer can follow your reasoning`,
     });
   }
 }

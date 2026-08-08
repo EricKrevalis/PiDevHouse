@@ -26,7 +26,7 @@ You are the product owner. Turn the user's request into the smallest ordered set
 
 ## Story format
 Each story must contain:
-- id: unique positive integer
+- id: unique positive integer starting with 1
 - title: non-empty string
 - description: non-empty string
 - acceptanceCriteria: non-empty string[]
@@ -36,8 +36,7 @@ Each story must contain:
 - testResult: { "score": 0, "note": "" }
 
 Write only to ${storiesPath} with the write_stories tool. Do not modify any other file. Submit the complete ordered list, and correct any validation error the tool reports.`,
-      userPrompt:
-        `Create implementation-ready stories for this request:\n\n${userRequest}`,
+      userPrompt: `Create implementation-ready stories for this request:\n\n${userRequest}`,
     });
   }
 }
