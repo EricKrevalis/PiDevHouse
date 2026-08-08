@@ -8,7 +8,7 @@ import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { readStories } from "../modules/tools/story/stories.ts";
 
 const MIN_VALIDATION_SCORE = 75;
-const MAX_ITERATIONS = 3;
+const MAX_ITERATIONS = 4;
 
 async function getValidationScore(
   workspace: Workspace,
@@ -32,12 +32,7 @@ export async function runStories(
 ): Promise<void> {
   const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
 
-  let reviewScore = 0;
-  for (
-    let i = 0;
-    i < MAX_ITERATIONS && reviewScore < MIN_VALIDATION_SCORE;
-    i++
-  ) {
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
     await new DeveloperAgent(
       storyId,
       storiesPath,
@@ -48,23 +43,21 @@ export async function runStories(
       storyId,
       i + 1,
     );
-    reviewScore = await getValidationScore(workspace, storyId, "review");
-  }
-
-  let testScore = 0;
-  for (let i = 0; i < MAX_ITERATIONS && testScore < MIN_VALIDATION_SCORE; i++) {
-    if (i > 0) {
-      await new DeveloperAgent(
-        storyId,
-        storiesPath,
-        workspace,
-        modelProvider,
-      ).run(storyId, i + 1);
+    if (
+      (await getValidationScore(workspace, storyId, "review")) <
+      MIN_VALIDATION_SCORE
+    ) {
+      continue;
     }
     await new TesterAgent(storyId, storiesPath, workspace, modelProvider).run(
       storyId,
       i + 1,
     );
-    testScore = await getValidationScore(workspace, storyId, "test");
+    if (
+      (await getValidationScore(workspace, storyId, "test")) >=
+      MIN_VALIDATION_SCORE
+    ) {
+      break;
+    }
   }
 }

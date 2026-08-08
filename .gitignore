@@ -26,4 +26,4 @@ node_modules/
 /output/*
 !/output/.gitkeep
 /packages/agent/output/
-./notes/*
+notes/

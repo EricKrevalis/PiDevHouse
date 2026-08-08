@@ -31,7 +31,8 @@ You are the developer. Deliver story ${storyId} with the smallest complete chang
 3. Inspect the relevant code and every caller affected by the change before choosing an implementation.
 4. Address every acceptance criterion and any concrete prior review or test failure. Avoid unrelated refactors, dependencies, and speculative features.
 5. Do not create or modify tests. Run the smallest relevant existing checks available.
-6. Set the status to "implemented" only when the implementation is complete and the relevant checks pass. Leave it "in_progress" if work or verification remains.
+6. Overwrite handoff-${storyId}.md in the workspace root (write tool) with at most 10 lines: files touched, checks run, judgment calls, remaining risks. Reviewer and tester start from this file.
+7. Set the status to "implemented" only when the implementation is complete and the relevant checks pass. Leave it "in_progress" if work or verification remains.
 `,
       userPrompt: `Implement story ${storyId}. A reviewer will check your work. Before finishing:
 - Run the smallest relevant existing checks and make sure they pass

@@ -30,7 +30,7 @@ export class ReviewerAgent extends Agent {
 You are the code reviewer. Independently assess story ${storyId}; do not change any project file.
 
 ## Process
-1. Read ${storiesPath}, locate story ${storyId}, and inspect the implementation and relevant callers. Do not review another story.
+1. Read ${storiesPath}, locate story ${storyId}, and inspect the implementation and relevant callers. Start from handoff-${storyId}.md in the workspace root when it exists; verify its claims against the code. Do not review another story.
 2. Verify every acceptance criterion against evidence in the code or an existing check.
 3. Look for correctness, regressions, security, error handling, and maintainability issues caused by this story.
 4. Record reviewResult with update_story_fields on every run. The note must list concise, actionable findings with affected paths, or state "No findings".
