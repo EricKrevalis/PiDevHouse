@@ -34,6 +34,7 @@
     "npm:typescript-eslint@^8.60.1": "8.65.0_eslint@10.7.0_typescript@6.0.3",
     "npm:typescript@^6.0.3": "6.0.3",
     "npm:vite@^8.0.16": "8.1.5_@types+node@24.13.3",
+    "npm:zod@4": "4.4.3",
     "npm:zod@^4.4.3": "4.4.3"
   },
   "npm": {

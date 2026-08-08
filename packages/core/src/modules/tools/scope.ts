@@ -3,12 +3,26 @@ import type {
   BeforeToolCallContext,
   BeforeToolCallResult,
 } from "@earendil-works/pi-agent-core";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
+import { STORIES_PATH, TOOLS } from "./registry.ts";
 
 const MAX_TOOL_CALLS = 25;
-const PATH_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
-const WRITE_TOOLS = new Set(["write", "edit"]);
-const PROTECTED_FILE = "stories.json";
+const PATH_TOOLS = new Set<string>([
+  TOOLS.read,
+  TOOLS.write,
+  TOOLS.edit,
+  TOOLS.grep,
+  TOOLS.find,
+  TOOLS.ls,
+]);
+const WRITE_TOOLS = new Set<string>([TOOLS.write, TOOLS.edit]);
 
 function isInside(root: string, target: string): boolean {
   const path = relative(root, target);
@@ -69,11 +83,11 @@ export function scopeToolCalls(
       if (
         path &&
         WRITE_TOOLS.has(ctx.toolCall.name) &&
-        basename(String(path)) === PROTECTED_FILE
+        basename(String(path)) === STORIES_PATH
       ) {
         return {
           block: true,
-          reason: `${PROTECTED_FILE} may only be changed with the write_stories tool`,
+          reason: `${STORIES_PATH} may only be changed with the write_stories tool`,
         };
       }
     }
