@@ -8,6 +8,7 @@ import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { readStories } from "../modules/tools/story/stories.ts";
 import { runStory } from "./orchestrator.ts";
 import { Story } from "../modules/model/story.model.ts";
+import { RunTimer } from "./timer.ts";
 
 const OUTPUT_ROOT = fileURLToPath(
   new URL("../../../../output", import.meta.url),
@@ -40,51 +41,64 @@ export async function runWorkflow(
   const modelProvider = await OllamaProvider.create();
   const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
 
-  await new ProductOwnerAgent(
-    userRequest,
-    storiesPath,
-    workspace,
-    modelProvider,
-  ).run();
+  const timer = new RunTimer();
+  timer.start();
+  try {
+    await new ProductOwnerAgent(
+      userRequest,
+      storiesPath,
+      workspace,
+      modelProvider,
+    ).run();
 
-  const initialState = await readStories(storiesPath);
-  if (initialState === null) {
-    AgentEventService.getInstance().emit(`\nProduct Owner failed: stories.json missing or invalid\n`);
-    return;
-  }
-  let stories = initialState.stories;
-
-  while (stories.some((story) => story.status !== "tested")) {
-    const story = stories.find(
-      (candidate) =>
-        candidate.status === "todo" &&
-        candidate.blockedBy.every(
-          (dependency: Story) =>
-            // TODO this may be to strict
-            stories.find((item) => item.id === dependency)?.status === "tested",
-        ),
-    );
-
-    if (!story) {
+    const initialState = await readStories(storiesPath);
+    if (initialState === null) {
       AgentEventService.getInstance().emit(
-        `\n=== Run incomplete ===\nRemaining stories wait on untested dependencies\n`,
+        `\nProduct Owner failed: stories.json missing or invalid\n`,
       );
       return;
     }
-    await runStory(story.id, workspace, modelProvider);
-    const freshState = await readStories(storiesPath);
-    if (freshState === null) {
-      AgentEventService.getInstance().emit(`\n=== Run blocked ===\nstories.json invalid\n`);
-      return;
-    }
-    stories = freshState.stories;
-  }
+    let stories = initialState.stories;
 
-  if (stories.every((story) => story.status === "tested")) {
-    AgentEventService.getInstance().emit(`\n=== Run completed ===\nOutput: ${workspace.workspaceDir}\n`);
-  } else {
-    AgentEventService.getInstance().emit(
-      `\n=== Run incomplete     ===\nOne or more stories were not tested\n`,
-    );
+    while (stories.some((story) => story.status !== "tested")) {
+      const story = stories.find(
+        (candidate) =>
+          candidate.status === "todo" &&
+          candidate.blockedBy.every(
+            (dependency: Story) =>
+              // TODO this may be to strict
+              stories.find((item) => item.id === dependency)?.status ===
+                "tested",
+          ),
+      );
+
+      if (!story) {
+        AgentEventService.getInstance().emit(
+          `\n=== Run incomplete ===\nRemaining stories wait on untested dependencies\n`,
+        );
+        return;
+      }
+      await runStory(story.id, workspace, modelProvider);
+      const freshState = await readStories(storiesPath);
+      if (freshState === null) {
+        AgentEventService.getInstance().emit(
+          `\n=== Run blocked ===\nstories.json invalid\n`,
+        );
+        return;
+      }
+      stories = freshState.stories;
+    }
+
+    if (stories.every((story) => story.status === "tested")) {
+      AgentEventService.getInstance().emit(
+        `\n=== Run completed ===\nOutput: ${workspace.workspaceDir}\n`,
+      );
+    } else {
+      AgentEventService.getInstance().emit(
+        `\n=== Run incomplete     ===\nOne or more stories were not tested\n`,
+      );
+    }
+  } finally {
+    timer.stop();
   }
 }

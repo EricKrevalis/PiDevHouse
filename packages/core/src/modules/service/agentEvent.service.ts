@@ -7,6 +7,8 @@ import { broadcast } from "../../api/server.ts";
 import { Agent } from "../model/agents/agent.model.ts";
 
 const textEncoder = new TextEncoder();
+const COLOR = "\x1b[36m";
+const RESET = "\x1b[0m";
 let instance: AgentEventService | undefined;
 
 export class AgentEventService {
@@ -44,7 +46,9 @@ export class AgentEventService {
       .filter(Boolean)
       .join(" · ");
 
-    const label = context ? `${context} · ${agent.name}` : agent.name;
+    const label = `${COLOR}${
+      context ? `${context} · ${agent.name}` : agent.name
+    }${RESET}`;
     const thinking = new ThinkingAnimation((c) => this.emit(c), label);
 
     this.emit(`${label}: starting...\n`);
@@ -101,7 +105,7 @@ export class AgentEventService {
     if (!this.isApi) {
       this.writeOutput(content);
     }
-    broadcast(content.replace(/\r(\x1b\[K)?/g, ""));
+    broadcast(content.replace(/\x1b\[[0-9;]*[a-zA-Z]|\r/g, ""));
   }
 
   private writeLog(
