@@ -3,9 +3,14 @@ import type { StoryStatus } from "./story.model.ts";
 
 const DEFAULT_REQUEST = "Build an interactive web todo app.";
 
-const VALUE_FLAGS = ["max-iterations", "min-score", "timeout-minutes"] as const;
+const VALUE_FLAGS = [
+  "max-iterations",
+  "min-score",
+  "timeout-minutes",
+  "concurrency",
+] as const;
 
-const BOOLEAN_FLAGS = ["no-reviewer", "no-tester"] as const;
+const BOOLEAN_FLAGS = ["no-reviewer", "no-tester", "orchestrator"] as const;
 
 type FlagMap = Record<string, string | boolean | undefined> & { _: string[] };
 
@@ -16,19 +21,17 @@ export interface ConfigInput {
   reviewerEnabled?: boolean;
   testerEnabled?: boolean;
   timeoutMinutes?: number;
+  concurrency?: number;
+  orchestratorEnabled?: boolean;
 }
 
 function flagBool(flags: FlagMap, name: string): boolean {
   return flags[name] === true;
 }
 
-function flagNumber(
-  flags: FlagMap,
-  name: string,
-  fallback: number,
-): number {
+function flagNumber(flags: FlagMap, name: string, fallback: number): number {
   const raw = flags[name];
-  return raw === undefined || raw === "" ? fallback : Number(raw);
+  return typeof raw !== "string" || raw === "" ? fallback : Number(raw);
 }
 
 export class Config {
@@ -39,16 +42,22 @@ export class Config {
     readonly reviewerEnabled: boolean,
     readonly testerEnabled: boolean,
     readonly timeoutMinutes: number,
+    readonly concurrency: number,
+    readonly orchestratorEnabled: boolean,
   ) {}
 
   static from(input: ConfigInput = {}): Config {
     return new Config(
       input.request?.trim() || DEFAULT_REQUEST,
-      input.maxIterations ?? 4,
+      input.maxIterations ?? 3,
       input.minScore ?? 75,
       input.reviewerEnabled ?? true,
       input.testerEnabled ?? true,
       input.timeoutMinutes ?? 0,
+      Number.isFinite(input.concurrency)
+        ? Math.max(1, input.concurrency as number)
+        : 1,
+      input.orchestratorEnabled ?? false,
     );
   }
 
@@ -65,6 +74,8 @@ export class Config {
       reviewerEnabled: !flagBool(flags, "no-reviewer"),
       testerEnabled: !flagBool(flags, "no-tester"),
       timeoutMinutes: flagNumber(flags, "timeout-minutes", 0),
+      concurrency: flagNumber(flags, "concurrency", 1),
+      orchestratorEnabled: flagBool(flags, "orchestrator"),
     });
   }
 
@@ -76,6 +87,8 @@ export class Config {
       reviewerEnabled: this.reviewerEnabled,
       testerEnabled: this.testerEnabled,
       timeoutMinutes: this.timeoutMinutes,
+      concurrency: this.concurrency,
+      orchestratorEnabled: this.orchestratorEnabled,
     };
   }
 
@@ -83,7 +96,7 @@ export class Config {
     return this.testerEnabled
       ? "tested"
       : this.reviewerEnabled
-      ? "approved"
-      : "implemented";
+        ? "approved"
+        : "implemented";
   }
 }

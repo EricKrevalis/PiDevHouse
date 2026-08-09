@@ -60,6 +60,8 @@ Every knob is also available as a `PIDEV_*` environment variable (for example
 | `--no-reviewer` | off | Skip the reviewer agent |
 | `--no-tester` | off | Skip the tester agent |
 | `--timeout-minutes=N` | `0` | Per-agent timeout in minutes (`0` = none) |
+| `--concurrency=N` | `1` | Run ready stories in parallel with bounded concurrency |
+| `--orchestrator` | off | Replace the fixed loop with the LLM `OrchestratorAgent` |
 
 Each run creates artifacts under `output/<request>/<timestamp>/`:
 

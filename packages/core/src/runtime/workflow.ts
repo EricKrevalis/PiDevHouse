@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GuideAgent } from "../modules/agents/guide.agent.ts";
+import { OrchestratorAgent } from "../modules/agents/orchestrator.agent.ts";
 import { ProductOwnerAgent } from "../modules/agents/po.agent.ts";
 import { AgentTimeoutError } from "../modules/model/agents/agent.model.ts";
 import { Config } from "../modules/model/config.model.ts";
@@ -89,24 +90,55 @@ export async function runWorkflow(config: Config): Promise<boolean> {
       eventService.emit(
         `\nProduct Owner failed: stories.json missing or invalid\n`,
       );
+    } else if (config.orchestratorEnabled) {
+      eventService.setStoryCount(initialState.stories.length);
+      await new OrchestratorAgent(
+        workspace,
+        modelProvider,
+        config,
+        initialState.stories,
+      ).run();
+      const finalState = await readStories(storiesPath);
+      if (finalState === null) {
+        outcome = "incomplete";
+        failed = true;
+        eventService.emit(`\n=== Run blocked ===\nstories.json invalid\n`);
+      } else {
+        stories = finalState.stories;
+        if (stories.every((story) => story.status === config.terminalStatus)) {
+          eventService.emit(
+            `\n=== Run completed ===\nOutput: ${workspace.workspaceDir}\n`,
+          );
+          await new GuideAgent(workspace, modelProvider).run();
+        } else {
+          outcome = "incomplete";
+          failed = true;
+          eventService.emit(
+            `\n=== Run incomplete ===\nOrchestrator did not deliver every story\n`,
+          );
+        }
+      }
     } else {
       stories = initialState.stories;
       const terminal = config.terminalStatus;
+      // ponytail: narrowing is lost inside closures in loops, so re-alias once
+      const ws = workspace;
+      const provider = modelProvider;
 
       eventService.setStoryCount(stories.length);
 
       while (stories.some((story) => story.status !== terminal)) {
-        const story = stories.find(
-          (candidate) =>
-            candidate.status === "todo" &&
-            candidate.blockedBy.every(
+        const ready = stories.filter(
+          (story) =>
+            story.status === "todo" &&
+            story.blockedBy.every(
               (dependency) =>
                 stories.find((item) => item.id === dependency)?.status ===
                 terminal,
             ),
         );
 
-        if (!story) {
+        if (ready.length === 0) {
           outcome = "incomplete";
           failed = true;
           eventService.emit(
@@ -115,7 +147,18 @@ export async function runWorkflow(config: Config): Promise<boolean> {
           break;
         }
 
-        await runStory(story.id, workspace, modelProvider, config);
+        let index = 0;
+        const workers = Math.min(config.concurrency, ready.length);
+        // ponytail: shared-workspace parallel runs race on stories.json and file
+        // edits; safe only for independent stories, default concurrency is 1
+        await Promise.all(
+          Array.from({ length: workers }, async () => {
+            while (index < ready.length) {
+              const storyId = ready[index++].id;
+              await runStory(storyId, ws, provider, config);
+            }
+          }),
+        );
 
         const freshState = await readStories(storiesPath);
         if (freshState === null) {

@@ -51,6 +51,10 @@ export abstract class Agent {
     return this.workspace.workspaceDir;
   }
 
+  protected buildCustomTools(): ReturnType<typeof createCustomTools> {
+    return createCustomTools(this.tools, this.workspace, this.writeDir);
+  }
+
   private withTimeoutPrompt(prompt: string, timeoutMinutes: number): string {
     if (timeoutMinutes <= 0) return prompt;
     return `${prompt}\n\n## Timeout\nYou have ${timeoutMinutes} minute(s) for this run. Prioritize and finish within the limit; an unfinished run is a failure.`;
@@ -71,7 +75,7 @@ export abstract class Agent {
       model: this.modelProvider.model,
       modelRuntime: this.modelProvider.modelRuntime,
       tools: this.tools.map(toolName),
-      customTools: createCustomTools(this.tools, this.workspace, this.writeDir),
+      customTools: this.buildCustomTools(),
       resourceLoader: resourceLoader,
       sessionManager: SessionManager.inMemory(),
       settingsManager: SettingsManager.inMemory(),
