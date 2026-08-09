@@ -1,4 +1,15 @@
 # Agent Instructions
 
-- Models and interfaces should live in the models directory.
-- never write tests!
+- **Always use ponytail for implementation if the skill is available.**
+
+## Coding Style (strictly enforced)
+
+- Keep code simple and easy to read. Reuse existing code before adding abstractions.
+- Always use named parameters to make a call clearer.
+- Inline initialization: assign directly to the outer variable (`outer = await f();`), no `const x = await f(); outer = x;` intermediary.
+- Keep models and interfaces in `src/modules/model`.
+- Never pass functions as parameters.
+- Use classes for stateful logic and functions for stateless logic. Keep implementation details private.
+- Use classes instead of functions that return functions.
+- Never write tests!
+- Before finishing, run `deno check src/main.ts`.

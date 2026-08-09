@@ -2,6 +2,7 @@ export const STORY_STATUSES = [
   "todo",
   "in_progress",
   "implemented",
+  "approved",
   "tested",
   "blocked",
 ] as const;

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { type Story, STORY_STATUSES } from "../models/story.ts";
+import { type Story, STORY_STATUSES } from "../../model/story.model.ts";
 
-const storySchema = z.object({
+export const storySchema = z.object({
   id: z.number().int().positive(),
   title: z.string().min(1),
   description: z.string().min(1),
@@ -15,7 +15,7 @@ const storySchema = z.object({
   testResult: z.object({ score: z.number().min(0).max(100), note: z.string() }),
 });
 
-const storiesArraySchema = z
+export const storiesArraySchema = z
   .array(storySchema)
   .min(1)
   .refine(
@@ -31,7 +31,7 @@ const storiesArraySchema = z
     { message: "duplicate ids or invalid dependencies" },
   );
 
-const storiesFileSchema = z.object({ stories: storiesArraySchema });
+export const storiesFileSchema = z.object({ stories: storiesArraySchema });
 
 export function validateStories(
   contents: string,
@@ -66,37 +66,6 @@ export function writeStoriesFile(
   return Deno.writeTextFile(path, `${JSON.stringify({ stories }, null, 2)}\n`);
 }
 
-export function createWriteStoriesTool(storiesPath: string) {
-  return {
-    name: "write_stories",
-    label: "Write stories",
-    description:
-      "Replace stories.json with a validated story list. Rejected unless every story is valid, ids are unique, and dependencies exist.",
-    parameters: z.toJSONSchema(storiesFileSchema),
-    async execute(
-      _toolCallId: string,
-      params: z.infer<typeof storiesFileSchema>,
-    ) {
-      const check = storiesArraySchema.safeParse(params.stories);
-      if (!check.success) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error: ${check.error.issues[0]?.message}`,
-            },
-          ],
-        };
-      }
-      await writeStoriesFile(storiesPath, check.data);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Wrote ${check.data.length} stories to stories.json`,
-          },
-        ],
-      };
-    },
-  };
+export function toolResult(text: string) {
+  return { content: [{ type: "text" as const, text }], details: {} };
 }
