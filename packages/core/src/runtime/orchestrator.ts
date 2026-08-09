@@ -4,7 +4,7 @@ import { ReviewerAgent } from "../modules/agents/reviewer.agent.ts";
 import { TesterAgent } from "../modules/agents/tester.agent.ts";
 import type { Config } from "../modules/model/config.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
-import type { StoryStatus } from "../modules/model/story.model.ts";
+import type { Story, StoryStatus } from "../modules/model/story.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
 import { AgentEventService } from "../modules/service/agentEvent.service.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
@@ -114,7 +114,13 @@ async function markBlocked(
   const state = await readStories(storiesPath);
   if (!state) return;
   const story = state.stories.find((story) => story.id === storyId);
-  if (!story || story.status === config.terminalStatus) return;
+  if (
+    !story ||
+    (story.status === config.terminalStatus &&
+      passedEnabledGates(story, config))
+  ) {
+    return;
+  }
 
   await writeStoriesFile(
     storiesPath,
@@ -127,4 +133,11 @@ async function markBlocked(
   AgentEventService.getInstance().emit(
     `\nStory ${storyId} marked blocked: iteration budget exhausted without passing the enabled gates\n`,
   );
+}
+
+function passedEnabledGates(story: Story, config: Config): boolean {
+  if (config.testerEnabled) return story.testResult.score >= config.minScore;
+  if (config.reviewerEnabled)
+    return story.reviewResult.score >= config.minScore;
+  return true;
 }

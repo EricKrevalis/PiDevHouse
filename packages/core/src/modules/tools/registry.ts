@@ -43,20 +43,31 @@ export function createCustomTools(
   workspace: Workspace,
   writeDir = workspace.workspaceDir,
 ): ToolDefinition[] {
+  const writableDir = refs.some(
+    (ref) => toolName(ref) === TOOLS.write || toolName(ref) === TOOLS.edit,
+  )
+    ? writeDir
+    : undefined;
+  const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
+
   return refs.flatMap((ref) => {
     switch (toolName(ref)) {
       case TOOLS.bash:
-        return [defineTool(createSandboxedBashTool(workspace))];
+        return [
+          defineTool(
+            createSandboxedBashTool(workspace, writableDir, [storiesPath]),
+          ),
+        ];
       case TOOLS.write:
         return [defineTool(createWriteToolDefinition(writeDir))];
       case TOOLS.edit:
         return [defineTool(createEditToolDefinition(writeDir))];
       case TOOLS.writeStories:
-        return [createWriteStoriesTool(resolve(workspace.workspaceDir, STORIES_PATH))];
+        return [createWriteStoriesTool(storiesPath)];
       case TOOLS.updateStoryFields:
         return [
           createUpdateStoryFieldsTool(
-            resolve(workspace.workspaceDir, STORIES_PATH),
+            storiesPath,
             typeof ref === "string" ? [] : ref.config.allowedFields,
           ),
         ];

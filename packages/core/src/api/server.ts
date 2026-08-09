@@ -1,7 +1,7 @@
 const PORT = Number(Deno.env.get("PIDEV_PORT") ?? 8765);
 const clients = new Set<WebSocket>();
 
-Deno.serve({ port: PORT }, (req) => {
+Deno.serve({ hostname: "127.0.0.1", port: PORT }, (req) => {
   if (req.headers.get("upgrade") !== "websocket") {
     return new Response("Not Found", { status: 404 });
   }

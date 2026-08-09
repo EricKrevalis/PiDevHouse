@@ -143,7 +143,7 @@ export class AgentEventService {
     story?: number,
     iteration?: number,
   ) {
-    Deno.writeTextFile(
+    Deno.writeTextFileSync(
       resolve(agent.workspace.logDir, "outputlog.jsonl"),
       `${JSON.stringify({
         timestamp: new Date(),
