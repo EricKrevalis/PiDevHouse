@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GuideAgent } from "../modules/agents/guide.agent.ts";
 import { ProductOwnerAgent } from "../modules/agents/po.agent.ts";
 import { AgentEventService } from "../modules/service/agentEvent.service.ts";
 import { OllamaProvider } from "../modules/model/providers/ollamaProvider.model.ts";
@@ -94,6 +95,7 @@ export async function runWorkflow(
       AgentEventService.getInstance().emit(
         `\n=== Run completed ===\nOutput: ${workspace.workspaceDir}\n`,
       );
+      await new GuideAgent(workspace, modelProvider).run();
       return 0;
     } else {
       AgentEventService.getInstance().emit(
