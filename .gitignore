@@ -16,6 +16,13 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.direnv/
 
 # Node
 node_modules/
+.turbo/
+
+# Generated runs
+/output/*
+!/output/.gitkeep
+/packages/agent/output/

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "dangerouslyDisablePackageManagerCheck": true,
+  "globalDependencies": ["deno.lock"],
+  "ui": "tui",
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "interactive": true,
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".svelte-kit/**", "build/**"]
+    },
+    "check": {
+      "dependsOn": ["^check"]
+    },
+    "test": {
+      "dependsOn": ["^test"]
+    }
+  }
+}
