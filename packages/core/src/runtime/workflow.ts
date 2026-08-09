@@ -13,7 +13,7 @@ import { AgentEventService } from "../modules/service/agentEvent.service.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { readStories } from "../modules/tools/story/stories.ts";
 import { runStory } from "./orchestrator.ts";
-import { parseOutputLog, writeSummary } from "./summary.ts";
+import { SummaryCollector } from "./summaryCollector.ts";
 import { Timer } from "./timer.ts";
 
 const OUTPUT_ROOT = fileURLToPath(
@@ -47,6 +47,8 @@ async function createRunDirectory(request: string): Promise<Workspace> {
 
 export async function runWorkflow(config: Config): Promise<boolean> {
   const eventService = AgentEventService.getInstance();
+  const summaryCollector = SummaryCollector.getInstance();
+  summaryCollector.reset();
   const timer = new Timer();
   timer.start();
   const startedAt = new Date();
@@ -140,8 +142,8 @@ export async function runWorkflow(config: Config): Promise<boolean> {
   } finally {
     timer.stop();
     if (workspace && modelProvider) {
-      const summary = await parseOutputLog(
-        resolve(workspace.logDir, "outputlog.jsonl"),
+      await summaryCollector.writeSummary(
+        resolve(workspace.logDir, ".."),
         {
           startedAt: startedAt.toISOString(),
           endedAt: new Date().toISOString(),
@@ -150,11 +152,10 @@ export async function runWorkflow(config: Config): Promise<boolean> {
           request: config.request,
           model: modelProvider.model.id,
           config: config.toJson(),
-          stories,
           error: errorMessage,
+          stories,
         },
       );
-      await writeSummary(resolve(workspace.logDir, ".."), summary);
     }
   }
   return failed;

@@ -6,6 +6,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { AgentEventService } from "../../service/agentEvent.service.ts";
+import { SummaryCollector } from "../../../runtime/summaryCollector.ts";
 import { createCustomTools, toolName, ToolRef } from "../../tools/registry.ts";
 import { scopeToolCalls } from "../../tools/scope.ts";
 import { ModelProvider } from "../providers/modelProvider.model.ts";
@@ -77,6 +78,7 @@ export abstract class Agent {
     });
 
     eventService.run(this, session, story, iteration);
+    SummaryCollector.getInstance().run(this, session, story, iteration);
     scopeToolCalls(session.agent, this.workspace.workspaceDir, this.writeDir);
 
     try {

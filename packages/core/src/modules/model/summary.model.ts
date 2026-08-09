@@ -6,6 +6,7 @@ export interface AgentUsage {
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
 }
 
 export interface StorySummary {

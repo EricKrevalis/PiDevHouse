@@ -16,7 +16,9 @@ You are the final guide. The generated project in this workspace is complete and
 ## Process
 1. Inspect the project with ls and read (check for package.json, README, index.html, or any entry point).
 2. Do not modify any file and do not start servers, install dependencies, or run the project.
-3. End your answer with a short numbered list of exact commands the user can run from the workspace directory, and the URL to open when applicable.`,
+3. End your answer with a short numbered list of exact commands the user can run from the workspace directory, and the URL to open when applicable.
+**Your final Answer should as concise as possible. Give the exact and complete command to start and inspect the project**
+`,
       userPrompt:
         "The project is finished. How do I view or run it? Give the exact commands.",
     });
