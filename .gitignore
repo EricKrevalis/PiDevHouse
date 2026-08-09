@@ -27,3 +27,5 @@ node_modules/
 !/output/.gitkeep
 /packages/agent/output/
 notes/
+# for individual papers
+paper/

@@ -53,15 +53,15 @@ as its default request.
 Every knob is also available as a `PIDEV_*` environment variable (for example
 `PIDEV_MAX_ITERATIONS`):
 
-| Flag | Default | Meaning |
-|---|---|---|
-| `--max-iterations=N` | `4` | Iteration budget per story |
-| `--min-score=N` | `75` | Minimum review/test score to pass |
-| `--no-reviewer` | off | Skip the reviewer agent |
-| `--no-tester` | off | Skip the tester agent |
-| `--timeout-minutes=N` | `0` | Per-agent timeout in minutes (`0` = none) |
-| `--concurrency=N` | `1` | Run ready stories in parallel with bounded concurrency |
-| `--orchestrator` | off | Replace the fixed loop with the LLM `OrchestratorAgent` |
+| Flag                  | Default | Meaning                                                 |
+| --------------------- | ------- | ------------------------------------------------------- |
+| `--max-iterations=N`  | `4`     | Iteration budget per story                              |
+| `--min-score=N`       | `75`    | Minimum review/test score to pass                       |
+| `--no-reviewer`       | off     | Skip the reviewer agent                                 |
+| `--no-tester`         | off     | Skip the tester agent                                   |
+| `--timeout-minutes=N` | `0`     | Per-agent timeout in minutes (`0` = none)               |
+| `--concurrency=N`     | `1`     | Run ready stories in parallel with bounded concurrency  |
+| `--orchestrator`      | off     | Replace the fixed loop with the LLM `OrchestratorAgent` |
 
 Each run creates artifacts under `output/<request>/<timestamp>/`:
 
@@ -91,7 +91,10 @@ it runs the default request 3 times. A spec looks like:
   "repeat": 3,
   "variants": [
     { "request": "Build an interactive web todo app", "flags": {} },
-    { "request": "Build an interactive web todo app", "flags": { "no-reviewer": true } }
+    {
+      "request": "Build an interactive web todo app",
+      "flags": { "no-reviewer": true }
+    }
   ]
 }
 ```
@@ -113,6 +116,12 @@ deno task build
 `dev` starts the desktop development server and watches the core's types.
 `check` validates both packages. `test` invokes the core test suite when test
 modules are present. `build` builds the desktop application.
+
+## Paper
+
+The course paper for this project lives in [`paper/`](paper/) as its own gitignored repository.
+
+Contributors can put their own paper repositories here too: create a gitignored git repo under `paper/` and push it to your own GitHub repo (e.g. `user/ki-paper`).
 
 ## Repository layout
 
