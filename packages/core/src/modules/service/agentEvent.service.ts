@@ -74,22 +74,26 @@ export class AgentEventService {
         this.writeLog(event, agent, story, iteration);
       }
 
-      const updateType = event.assistantMessageEvent?.type;
       switch (event.type) {
         case "message_update":
-          if (updateType == "thinking_start") {
-            thinking.start();
-          } else if (updateType == "thinking_end") {
-            thinking.stop();
-          } else if (updateType == "text_delta") {
-            thinking.stop();
-            if (isStreamBeginning) {
-              emit("\n");
-              isStreamBeginning = false;
+          switch (event.assistantMessageEvent.type) {
+            case "thinking_start":
+              thinking.start();
+              break;
+            case "thinking_end":
+              thinking.stop();
+              break;
+            case "text_delta": {
+              thinking.stop();
+              if (isStreamBeginning) {
+                emit("\n");
+                isStreamBeginning = false;
+              }
+              const delta = event.assistantMessageEvent.delta;
+              this.emit(delta);
+              streamNeedsNewline = !delta.endsWith("\n");
+              break;
             }
-            const delta = event.assistantMessageEvent.delta;
-            this.emit(delta);
-            streamNeedsNewline = !delta.endsWith("\n");
           }
           break;
         case "message_end":

@@ -1,5 +1,6 @@
 import {
   createAgentSession,
+  type AgentSession,
   DefaultResourceLoader,
   SessionManager,
   SettingsManager,
@@ -15,6 +16,13 @@ interface AgentOptions {
   modelProvider: ModelProvider;
   systemPrompt: string;
   userPrompt: string;
+  timeoutMinutes?: number;
+}
+
+export class AgentTimeoutError extends Error {
+  constructor(timeoutMinutes: number) {
+    super(`Agent run exceeded ${timeoutMinutes} minute(s)`);
+  }
 }
 
 export abstract class Agent {
@@ -24,7 +32,11 @@ export abstract class Agent {
   constructor(options: AgentOptions) {
     this.workspace = options.workspace;
     this.modelProvider = options.modelProvider;
-    this.systemPrompt = options.systemPrompt;
+    this.timeoutMinutes = options.timeoutMinutes ?? 0;
+    this.systemPrompt = this.withTimeoutPrompt(
+      options.systemPrompt,
+      this.timeoutMinutes,
+    );
     this.userPrompt = options.userPrompt;
   }
 
@@ -32,6 +44,16 @@ export abstract class Agent {
   readonly modelProvider: ModelProvider;
   readonly systemPrompt: string;
   readonly userPrompt: string;
+  readonly timeoutMinutes: number;
+
+  protected get writeDir(): string {
+    return this.workspace.workspaceDir;
+  }
+
+  private withTimeoutPrompt(prompt: string, timeoutMinutes: number): string {
+    if (timeoutMinutes <= 0) return prompt;
+    return `${prompt}\n\n## Timeout\nYou have ${timeoutMinutes} minute(s) for this run. Prioritize and finish within the limit; an unfinished run is a failure.`;
+  }
 
   async run(story?: number, iteration?: number): Promise<void> {
     const eventService = AgentEventService.getInstance();
@@ -47,23 +69,42 @@ export abstract class Agent {
       cwd: this.workspace.workspaceDir,
       model: this.modelProvider.model,
       modelRuntime: this.modelProvider.modelRuntime,
-      thinkingLevel: "off",
       tools: this.tools.map(toolName),
-      customTools: createCustomTools(this.tools, this.workspace.workspaceDir),
+      customTools: createCustomTools(this.tools, this.workspace, this.writeDir),
       resourceLoader: resourceLoader,
       sessionManager: SessionManager.inMemory(),
       settingsManager: SettingsManager.inMemory(),
     });
 
     eventService.run(this, session, story, iteration);
-    scopeToolCalls(session.agent, this.workspace.workspaceDir);
+    scopeToolCalls(session.agent, this.workspace.workspaceDir, this.writeDir);
 
     try {
-      await session.prompt(this.userPrompt);
-    } catch (error) {
-      throw error;
+      await this.prompt(session);
     } finally {
       session.dispose();
+    }
+  }
+
+  private async prompt(session: AgentSession): Promise<void> {
+    const timeoutMinutes = this.timeoutMinutes;
+    if (timeoutMinutes <= 0) {
+      await session.prompt(this.userPrompt);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new AgentTimeoutError(timeoutMinutes)),
+        timeoutMinutes * 60_000,
+      );
+    });
+    const promptPromise = session.prompt(this.userPrompt);
+    promptPromise.catch(() => {});
+    try {
+      await Promise.race([promptPromise, timeout]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

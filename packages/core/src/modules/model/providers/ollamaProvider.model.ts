@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { Config } from "../config.model.ts";
 import { ModelProvider } from "./modelProvider.model.ts";
 
 export class OllamaProvider extends ModelProvider {
@@ -12,7 +13,7 @@ export class OllamaProvider extends ModelProvider {
     this.model = model;
   }
 
-  static async create(): Promise<OllamaProvider> {
+  static override async create(_config: Config): Promise<OllamaProvider> {
     const ollamaHost = Deno.env.get("OLLAMA_HOST") ?? "http://localhost:11434";
     const modelId = ModelProvider.requireEnv("OLLAMA_MODEL");
 

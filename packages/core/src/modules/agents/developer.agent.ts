@@ -18,10 +18,12 @@ export class DeveloperAgent extends Agent {
     storiesPath: string,
     workspace: Workspace,
     modelProvider: ModelProvider,
+    timeoutMinutes: number,
   ) {
     super({
       workspace,
       modelProvider,
+      timeoutMinutes,
       systemPrompt: `## Role
 You are the developer. Deliver story ${storyId} with the smallest complete change that follows the repository's existing patterns.
 

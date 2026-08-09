@@ -1,8 +1,11 @@
 import {
+  createEditToolDefinition,
+  createWriteToolDefinition,
   defineTool,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { resolve } from "node:path";
+import type { Workspace } from "../model/workspace.model.ts";
 import { createSandboxedBashTool } from "./bash.ts";
 import type { StoryField } from "./story/updateStoryFields.ts";
 import { createUpdateStoryFieldsTool } from "./story/updateStoryFields.ts";
@@ -37,18 +40,23 @@ export function toolName(ref: ToolRef): Tools {
 
 export function createCustomTools(
   refs: readonly ToolRef[],
-  workspaceDir: string,
+  workspace: Workspace,
+  writeDir = workspace.workspaceDir,
 ): ToolDefinition[] {
   return refs.flatMap((ref) => {
     switch (toolName(ref)) {
       case TOOLS.bash:
-        return [defineTool(createSandboxedBashTool(workspaceDir))];
+        return [defineTool(createSandboxedBashTool(workspace))];
+      case TOOLS.write:
+        return [defineTool(createWriteToolDefinition(writeDir))];
+      case TOOLS.edit:
+        return [defineTool(createEditToolDefinition(writeDir))];
       case TOOLS.writeStories:
-        return [createWriteStoriesTool(resolve(workspaceDir, STORIES_PATH))];
+        return [createWriteStoriesTool(resolve(workspace.workspaceDir, STORIES_PATH))];
       case TOOLS.updateStoryFields:
         return [
           createUpdateStoryFieldsTool(
-            resolve(workspaceDir, STORIES_PATH),
+            resolve(workspace.workspaceDir, STORIES_PATH),
             typeof ref === "string" ? [] : ref.config.allowedFields,
           ),
         ];

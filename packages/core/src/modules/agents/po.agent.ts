@@ -11,10 +11,12 @@ export class ProductOwnerAgent extends Agent {
     storiesPath: string,
     workspace: Workspace,
     modelProvider: ModelProvider,
+    timeoutMinutes: number,
   ) {
     super({
       workspace,
       modelProvider,
+      timeoutMinutes,
       systemPrompt: `## Role
 You are the product owner. Turn the user's request into the smallest ordered set of implementation-ready stories.
 

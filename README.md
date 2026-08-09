@@ -48,11 +48,54 @@ deno task core Build an interactive web todo app
 The request is optional; without one, the core uses an interactive web todo app
 as its default request.
 
-Each run creates timestamped artifacts under `output/`:
+### Flags
+
+Every knob is also available as a `PIDEV_*` environment variable (for example
+`PIDEV_MAX_ITERATIONS`):
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--max-iterations=N` | `4` | Iteration budget per story |
+| `--min-score=N` | `75` | Minimum review/test score to pass |
+| `--no-reviewer` | off | Skip the reviewer agent |
+| `--no-tester` | off | Skip the tester agent |
+| `--timeout-minutes=N` | `0` | Per-agent timeout in minutes (`0` = none) |
+
+Each run creates artifacts under `output/<request>/<timestamp>/`:
 
 - `src/` is the generated workspace, including `stories.json`.
 - `log/outputlog.jsonl` records structured agent activity.
-- `test/` is reserved for run-specific test output.
+- `test/` is the tester's persistent scratch directory, bound into its sandbox.
+- `summary.json` (also copied as `run.json`) records outcome, exit code,
+  request, model, config, durations, token totals per agent, and per-story
+  scores, trajectories, and statuses on every termination path.
+
+## Aggregate runs
+
+```sh
+deno task report                     # Markdown tables for all runs
+deno task report --csv=output/summary.csv
+```
+
+```sh
+deno task experiment [spec.json]     # variant matrix × ≥3 runs
+```
+
+`experiment` runs the CLI once per (variant, repeat) pair. Without a spec file
+it runs the default request 3 times. A spec looks like:
+
+```json
+{
+  "repeat": 3,
+  "variants": [
+    { "request": "Build an interactive web todo app", "flags": {} },
+    { "request": "Build an interactive web todo app", "flags": { "no-reviewer": true } }
+  ]
+}
+```
+
+Each run lands in its own `output/<request>/<timestamp>/` directory; results
+are aggregated into `output/experiment-<timestamp>.json`.
 
 ## Development
 

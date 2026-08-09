@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { Config } from "../config.model.ts";
 
 export abstract class ModelProvider {
   abstract readonly modelRuntime: ModelRuntime;
@@ -13,5 +14,7 @@ export abstract class ModelProvider {
     return value;
   }
 
-  static create();
+  static create(_config: Config): Promise<ModelProvider> {
+    throw new Error("not implemented");
+  }
 }

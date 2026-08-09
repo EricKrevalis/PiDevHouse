@@ -13,7 +13,7 @@ export class ReviewerAgent extends Agent {
     "ls",
     {
       name: TOOLS.updateStoryFields,
-      config: { allowedFields: ["reviewResult"] },
+      config: { allowedFields: ["reviewResult", "status"] },
     },
   ] as const;
 
@@ -22,10 +22,12 @@ export class ReviewerAgent extends Agent {
     storiesPath: string,
     workspace: Workspace,
     modelProvider: ModelProvider,
+    timeoutMinutes: number,
   ) {
     super({
       workspace,
       modelProvider,
+      timeoutMinutes,
       systemPrompt: `## Role
 You are the code reviewer. Independently assess story ${storyId}; do not change any project file.
 
@@ -35,6 +37,7 @@ You are the code reviewer. Independently assess story ${storyId}; do not change 
 3. Look for correctness, regressions, security, error handling, and maintainability issues caused by this story.
 4. Record reviewResult with update_story_fields on every run. The note must list concise, actionable findings with affected paths, or state "No findings".
 5. Score below 75 when an acceptance criterion fails or a correctness, security, or regression issue remains. Score 100 only when there are no findings.
+6. Set status to "approved" with update_story_fields only when the story passes review (score 75 or above); otherwise leave its status unchanged.
 `,
       userPrompt: `Review story ${storyId}.`,
     });
