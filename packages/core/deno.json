@@ -1,4 +1,8 @@
 {
+  "imports": {
+    "@std/cli/parse-args": "jsr:@std/cli@^1.0.0/parse-args",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225.8"
+  },
   "compilerOptions": {
     "lib": ["deno.ns", "dom", "esnext"]
   },

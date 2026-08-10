@@ -45,8 +45,9 @@ Set `OLLAMA_MODEL` in `.env` to the model you pulled. `OLLAMA_HOST` defaults to
 deno task core Build an interactive web todo app
 ```
 
-The request is optional; without one, the core uses an interactive web todo app
-as its default request.
+The request is optional; without one, the core starts only the API service
+(WebSocket on port 8765) that the desktop app connects to, instead of running
+the default request.
 
 ### Flags
 
@@ -110,7 +111,7 @@ deno task test
 deno task build
 ```
 
-`dev` starts the desktop development server and watches the core's types.
+`dev` starts the API service and the desktop development server, watching both.
 `check` validates both packages. `test` invokes the core test suite when test
 modules are present. `build` builds the desktop application.
 

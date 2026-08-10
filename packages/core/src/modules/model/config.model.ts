@@ -1,4 +1,4 @@
-import { parseArgs } from "jsr:@std/cli@^1.0.0/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import type { StoryStatus } from "./story.model.ts";
 
 const DEFAULT_REQUEST = "Build an interactive web todo app.";
