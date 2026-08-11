@@ -1,3 +1,4 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { type Story, STORY_STATUSES } from "../../model/story.model.ts";
 
@@ -51,19 +52,35 @@ export async function readStories(
   path: string,
 ): Promise<{ stories: Story[] } | null> {
   try {
-    const state = validateStories(await Deno.readTextFile(path));
+    const state = validateStories(await readFile(path, "utf8"));
     return typeof state === "string" ? null : state;
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) return null;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
 }
+
+export class Mutex {
+  private tail: Promise<void> = Promise.resolve();
+
+  acquire(): Promise<() => void> {
+    let release!: () => void;
+    const turn = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const previous = this.tail;
+    this.tail = turn;
+    return previous.then(() => release);
+  }
+}
+
+export const storiesMutex = new Mutex();
 
 export function writeStoriesFile(
   path: string,
   stories: Story[],
 ): Promise<void> {
-  return Deno.writeTextFile(path, `${JSON.stringify({ stories }, null, 2)}\n`);
+  return writeFile(path, `${JSON.stringify({ stories }, null, 2)}\n`);
 }
 
 export function toolResult(text: string) {

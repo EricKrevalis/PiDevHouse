@@ -5,14 +5,15 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { AgentEventService } from "../../service/agentEvent.service.ts";
-import { SummaryCollector } from "../../../runtime/summaryCollector.ts";
+import { AgentEventBridge } from "../../service/agentEventBridge.ts";
+import { SummaryCollector } from "../../service/summaryCollector.ts";
 import { createCustomTools, toolName, ToolRef } from "../../tools/registry.ts";
 import { scopeToolCalls } from "../../tools/scope.ts";
 import { ModelProvider } from "../providers/modelProvider.model.ts";
 import { Workspace } from "../workspace.model.ts";
 
 interface AgentOptions {
+  runId: string;
   workspace: Workspace;
   modelProvider: ModelProvider;
   systemPrompt: string;
@@ -31,6 +32,7 @@ export abstract class Agent {
   abstract readonly tools: readonly ToolRef[];
 
   constructor(options: AgentOptions) {
+    this.runId = options.runId;
     this.workspace = options.workspace;
     this.modelProvider = options.modelProvider;
     this.timeoutMinutes = options.timeoutMinutes ?? 0;
@@ -41,6 +43,7 @@ export abstract class Agent {
     this.userPrompt = options.userPrompt;
   }
 
+  readonly runId: string;
   readonly workspace: Workspace;
   readonly modelProvider: ModelProvider;
   readonly systemPrompt: string;
@@ -61,7 +64,7 @@ export abstract class Agent {
   }
 
   async run(story?: number, iteration?: number): Promise<void> {
-    const eventService = AgentEventService.getInstance();
+    const eventBridge = AgentEventBridge.getInstance();
 
     const resourceLoader = new DefaultResourceLoader({
       cwd: this.workspace.workspaceDir,
@@ -81,7 +84,7 @@ export abstract class Agent {
       settingsManager: SettingsManager.inMemory(),
     });
 
-    eventService.run(this, session, story, iteration);
+    eventBridge.run(this, session, story, iteration);
     SummaryCollector.getInstance().run(this, session, story, iteration);
     scopeToolCalls(session.agent, this.workspace.workspaceDir, this.writeDir);
 

@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import type {
   Agent,
   BeforeToolCallContext,
@@ -40,10 +41,10 @@ async function isScopedPath(root: string, input: string): Promise<boolean> {
   while (isInside(root, existingPath)) {
     try {
       const canonicalPath = resolve(
-        await Deno.realPath(existingPath),
+        await realpath(existingPath),
         relative(existingPath, target),
       );
-      return isInside(await Deno.realPath(root), canonicalPath);
+      return isInside(await realpath(root), canonicalPath);
     } catch {
       if (existingPath === root) return false;
       existingPath = dirname(existingPath);

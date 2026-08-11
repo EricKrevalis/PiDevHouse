@@ -1,18 +1,9 @@
-import { parseArgs } from "@std/cli/parse-args";
+import { parseArgs } from "node:util";
 import type { StoryStatus } from "./story.model.ts";
 
 const DEFAULT_REQUEST = "Build an interactive web todo app.";
 
-const VALUE_FLAGS = [
-  "max-iterations",
-  "min-score",
-  "timeout-minutes",
-  "concurrency",
-] as const;
-
-const BOOLEAN_FLAGS = ["no-reviewer", "no-tester", "orchestrator"] as const;
-
-type FlagMap = Record<string, string | boolean | undefined> & { _: string[] };
+type FlagMap = Record<string, string | boolean | undefined>;
 
 export interface ConfigInput {
   request?: string;
@@ -62,20 +53,30 @@ export class Config {
   }
 
   static fromArgs(args: string[]): Config {
-    const flags = parseArgs(args, {
-      string: [...VALUE_FLAGS],
-      boolean: [...BOOLEAN_FLAGS],
-    }) as FlagMap;
+    const { values, positionals } = parseArgs({
+      args,
+      options: {
+        "max-iterations": { type: "string" },
+        "min-score": { type: "string" },
+        "timeout-minutes": { type: "string" },
+        concurrency: { type: "string" },
+        "no-reviewer": { type: "boolean" },
+        "no-tester": { type: "boolean" },
+        orchestrator: { type: "boolean" },
+      },
+      allowPositionals: true,
+      strict: false,
+    });
 
     return Config.from({
-      request: flags._.join(" "),
-      maxIterations: flagNumber(flags, "max-iterations", 4),
-      minScore: flagNumber(flags, "min-score", 75),
-      reviewerEnabled: !flagBool(flags, "no-reviewer"),
-      testerEnabled: !flagBool(flags, "no-tester"),
-      timeoutMinutes: flagNumber(flags, "timeout-minutes", 0),
-      concurrency: flagNumber(flags, "concurrency", 1),
-      orchestratorEnabled: flagBool(flags, "orchestrator"),
+      request: positionals.join(" "),
+      maxIterations: flagNumber(values, "max-iterations", 4),
+      minScore: flagNumber(values, "min-score", 75),
+      reviewerEnabled: !flagBool(values, "no-reviewer"),
+      testerEnabled: !flagBool(values, "no-tester"),
+      timeoutMinutes: flagNumber(values, "timeout-minutes", 0),
+      concurrency: flagNumber(values, "concurrency", 1),
+      orchestratorEnabled: flagBool(values, "orchestrator"),
     });
   }
 

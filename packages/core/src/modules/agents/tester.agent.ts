@@ -26,8 +26,10 @@ export class TesterAgent extends Agent {
     workspace: Workspace,
     modelProvider: ModelProvider,
     timeoutMinutes: number,
+    runId: string,
   ) {
     super({
+      runId,
       workspace,
       modelProvider,
       timeoutMinutes,

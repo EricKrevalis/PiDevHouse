@@ -6,8 +6,13 @@ export class GuideAgent extends Agent {
   readonly name = "guide";
   readonly tools = ["read", "ls"] as const;
 
-  constructor(workspace: Workspace, modelProvider: ModelProvider) {
+  constructor(
+    workspace: Workspace,
+    modelProvider: ModelProvider,
+    runId: string,
+  ) {
     super({
+      runId,
       workspace,
       modelProvider,
       systemPrompt: `## Role

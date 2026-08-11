@@ -1,8 +1,9 @@
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { Agent } from "../modules/model/agents/agent.model.ts";
-import type { Story } from "../modules/model/story.model.ts";
-import type { AgentUsage, Summary } from "../modules/model/summary.model.ts";
+import type { Agent } from "../model/agents/agent.model.ts";
+import type { Story } from "../model/story.model.ts";
+import type { AgentUsage, Summary } from "../model/summary.model.ts";
 
 let instance: SummaryCollector | undefined;
 
@@ -10,6 +11,12 @@ interface StoryTrack {
   iterations: number;
   reviewTrajectory: number[];
   testTrajectory: number[];
+}
+
+interface RunState {
+  agents: Map<string, AgentUsage>;
+  tracks: Map<number, StoryTrack>;
+  guide?: string;
 }
 
 type RunMetadata = Omit<Summary, "agents" | "stories" | "guide"> & {
@@ -33,14 +40,15 @@ export class SummaryCollector {
 
   private constructor() {}
 
-  private readonly agents = new Map<string, AgentUsage>();
-  private readonly tracks = new Map<number, StoryTrack>();
-  private guide?: string;
+  private readonly runs = new Map<string, RunState>();
 
-  reset(): void {
-    this.agents.clear();
-    this.tracks.clear();
-    this.guide = undefined;
+  private state(runId: string): RunState {
+    let run = this.runs.get(runId);
+    if (run === undefined) {
+      run = { agents: new Map(), tracks: new Map() };
+      this.runs.set(runId, run);
+    }
+    return run;
   }
 
   run(agent: Agent, session: AgentSession, story?: number, iteration?: number): void {
@@ -53,8 +61,9 @@ export class SummaryCollector {
     story: number | undefined,
     iteration: number | undefined,
   ): void {
+    const state = this.state(agent.runId);
     if (event.type === "message_end" && event.message.role === "assistant") {
-      const usage = this.agents.get(agent.name) ?? {
+      const usage = state.agents.get(agent.name) ?? {
         calls: 0,
         inputTokens: 0,
         outputTokens: 0,
@@ -64,16 +73,16 @@ export class SummaryCollector {
       usage.inputTokens += event.message.usage.input;
       usage.outputTokens += event.message.usage.output;
       usage.reasoningTokens += event.message.usage.reasoning ?? 0;
-      this.agents.set(agent.name, usage);
+      state.agents.set(agent.name, usage);
 
       if (agent.name === "guide") {
         const text = messageText(event.message.content);
-        if (text !== "") this.guide = text;
+        if (text !== "") state.guide = text;
       }
     }
 
     if (story === undefined) return;
-    const track = this.tracks.get(story) ?? {
+    const track = state.tracks.get(story) ?? {
       iterations: 0,
       reviewTrajectory: [],
       testTrajectory: [],
@@ -93,34 +102,36 @@ export class SummaryCollector {
         track.testTrajectory.push(fields.testResult.score);
       }
     }
-    this.tracks.set(story, track);
+    state.tracks.set(story, track);
   }
 
-  async writeSummary(runDir: string, metadata: RunMetadata): Promise<void> {
+  async writeSummary(runId: string, runDir: string, metadata: RunMetadata): Promise<void> {
+    const state = this.state(runId);
     const { stories, ...run } = metadata;
-    const summary: Summary = { ...run, ...this.collect(stories) };
-    await Deno.writeTextFile(
+    const summary: Summary = { ...run, ...this.collect(state, stories) };
+    await writeFile(
       resolve(runDir, "summary.json"),
       `${JSON.stringify(summary, null, 2)}\n`,
     );
+    this.runs.delete(runId);
   }
 
-  private collect(stories: Story[]): Pick<Summary, "agents" | "stories" | "guide"> {
+  private collect(state: RunState, stories: Story[]): Pick<Summary, "agents" | "stories" | "guide"> {
     return {
-      agents: Object.fromEntries(this.agents),
+      agents: Object.fromEntries(state.agents),
       stories: stories.map((story) => ({
         id: story.id,
         title: story.title,
         status: story.status,
         reviewScore: story.reviewResult.score,
         testScore: story.testResult.score,
-        ...(this.tracks.get(story.id) ?? {
+        ...(state.tracks.get(story.id) ?? {
           iterations: 0,
           reviewTrajectory: [],
           testTrajectory: [],
         }),
       })),
-      guide: this.guide,
+      guide: state.guide,
     };
   }
 }

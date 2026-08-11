@@ -1,16 +1,16 @@
-import { resolve } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { resolve } from "node:path";
 import { z } from "zod";
 import { Agent } from "../model/agents/agent.model.ts";
 import type { Config } from "../model/config.model.ts";
+import { DeveloperAgent } from "./developer.agent.ts";
+import { ReviewerAgent } from "./reviewer.agent.ts";
+import { TesterAgent } from "./tester.agent.ts";
 import type { ModelProvider } from "../model/providers/modelProvider.model.ts";
 import type { Story } from "../model/story.model.ts";
 import type { Workspace } from "../model/workspace.model.ts";
 import { STORIES_PATH } from "../tools/registry.ts";
 import { readStories, toolResult } from "../tools/story/stories.ts";
-import { DeveloperAgent } from "./developer.agent.ts";
-import { ReviewerAgent } from "./reviewer.agent.ts";
-import { TesterAgent } from "./tester.agent.ts";
 
 const orchestrationParamsSchema = z.object({
   agent: z.enum(["developer", "reviewer", "tester"]),
@@ -36,12 +36,14 @@ export class OrchestratorAgent extends Agent {
     modelProvider: ModelProvider,
     config: Config,
     stories: readonly Story[],
+    runId: string,
   ) {
     const terminal = config.terminalStatus;
     const available = stories
       .map((story) => `#${story.id} ${story.title} (status: ${story.status})`)
       .join("\n");
     super({
+      runId,
       workspace,
       modelProvider,
       timeoutMinutes: config.timeoutMinutes,
@@ -55,10 +57,10 @@ ${available}
 - "todo" → run the developer agent to implement it (status becomes "in_progress" then "implemented").
 ${config.reviewerEnabled ? `- "implemented" → run the reviewer agent; it sets "approved" when reviewResult.score >= ${config.minScore}.` : "- The reviewer agent is disabled; skip it."}
 ${config.testerEnabled ? `- "approved" (or "implemented" when the reviewer is disabled) → run the tester agent; it sets "tested" when testResult.score >= ${config.minScore}.` : "- The tester agent is disabled; the terminal status is reached after review."}
-- Each story has an iteration budget of ${config.maxIterations}. The run_agent tool reports how many iterations a story has used. After the budget is exhausted without reaching "${terminal}", leave the story and move on; it cannot be fixed by more iterations.
+- Each story has an iteration budget of ${config.maxIterations}. The run_agent tool reports how many iterations a story has used. When the budget is exhausted at the story's final gate without reaching "${terminal}", the story is marked "blocked" automatically; move on, it cannot be fixed by more iterations.
 
 ## Process
-1. Read ${resolve(workspace.workspaceDir, STORIES_PATH)} and inspect every story's status, scores, and blockedBy dependencies.
+    1. Read ${resolve(workspace.workspaceDir, STORIES_PATH)} and inspect every story's status, scores, and blockedBy dependencies.
 2. Only work on a story that is "todo" (or already in progress) and whose blockedBy stories all have status "${terminal}".
 3. Call run_agent for exactly one agent on exactly one story at a time: the agent that should run next given the story's current status. Never skip a step: developer first, then reviewer (if enabled), then tester (if enabled).
 4. After each run_agent, re-read stories.json and check the updated status and scores before choosing the next agent. Do not run an agent on a story whose current status does not match its expected input state.
@@ -101,6 +103,7 @@ Finish with a one-line summary: how many stories reached "${terminal}", and whic
           this.workspace,
           this.modelProvider,
           this.config.timeoutMinutes,
+          this.runId,
         ).run(storyId, iteration);
 
         const state = await readStories(this.storiesPath);

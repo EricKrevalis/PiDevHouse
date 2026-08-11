@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { DeveloperAgent } from "../modules/agents/developer.agent.ts";
 import { ReviewerAgent } from "../modules/agents/reviewer.agent.ts";
 import { TesterAgent } from "../modules/agents/tester.agent.ts";
@@ -6,7 +5,7 @@ import type { Config } from "../modules/model/config.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
 import type { Story, StoryStatus } from "../modules/model/story.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
-import { AgentEventService } from "../modules/service/agentEvent.service.ts";
+import { EventBus } from "../modules/service/eventBus.service.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import {
   readStories,
@@ -17,17 +16,22 @@ async function getValidationScore(
   workspace: Workspace,
   storyId: number,
   variant: "review" | "test",
+  runId: string,
 ): Promise<number> {
-  const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
-  const story = (await readStories(storiesPath))?.stories.find(
+  const story = (await readStories(resolve(workspace.workspaceDir, STORIES_PATH)))?.stories.find(
     (story) => story.id === storyId,
   );
   if (!story) return 0;
   const score =
     variant === "review" ? story.reviewResult.score : story.testResult.score;
-  AgentEventService.getInstance().emit(
-    `\nStory ${storyId} ${variant}_score: ${score}\n`,
-  );
+  EventBus.getInstance().publish({
+    type: "story_score",
+    runId,
+    storyId,
+    variant,
+    score,
+    timestamp: new Date().toISOString(),
+  });
   return score;
 }
 
@@ -38,6 +42,7 @@ async function runAgent(
   modelProvider: ModelProvider,
   config: Config,
   iteration: number,
+  runId: string,
 ): Promise<void> {
   await new agentClass(
     storyId,
@@ -45,6 +50,7 @@ async function runAgent(
     workspace,
     modelProvider,
     config.timeoutMinutes,
+    runId,
   ).run(storyId, iteration);
 }
 
@@ -53,8 +59,9 @@ export async function runStory(
   workspace: Workspace,
   modelProvider: ModelProvider,
   config: Config,
+  runId: string,
 ): Promise<void> {
-  const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
+  const storyFile = resolve(workspace.workspaceDir, STORIES_PATH);
 
   for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
     await runAgent(
@@ -64,6 +71,7 @@ export async function runStory(
       modelProvider,
       config,
       iteration,
+      runId,
     );
 
     if (config.reviewerEnabled) {
@@ -74,9 +82,10 @@ export async function runStory(
         modelProvider,
         config,
         iteration,
+        runId,
       );
       if (
-        (await getValidationScore(workspace, storyId, "review")) <
+        (await getValidationScore(workspace, storyId, "review", runId)) <
         config.minScore
       ) {
         continue;
@@ -93,9 +102,10 @@ export async function runStory(
         modelProvider,
         config,
         iteration,
+        runId,
       );
       if (
-        (await getValidationScore(workspace, storyId, "test")) >=
+        (await getValidationScore(workspace, storyId, "test", runId)) >=
         config.minScore
       ) {
         return;
@@ -103,13 +113,14 @@ export async function runStory(
     }
   }
 
-  await markBlocked(storiesPath, storyId, config);
+  await markBlocked(storyFile, storyId, config, runId);
 }
 
 async function markBlocked(
   storiesPath: string,
   storyId: number,
   config: Config,
+  runId: string,
 ): Promise<void> {
   const state = await readStories(storiesPath);
   if (!state) return;
@@ -130,9 +141,13 @@ async function markBlocked(
         : story,
     ),
   );
-  AgentEventService.getInstance().emit(
-    `\nStory ${storyId} marked blocked: iteration budget exhausted without passing the enabled gates\n`,
-  );
+  EventBus.getInstance().publish({
+    type: "story_blocked",
+    runId,
+    storyId,
+    detail: "iteration budget exhausted without passing the enabled gates",
+    timestamp: new Date().toISOString(),
+  });
 }
 
 function passedEnabledGates(story: Story, config: Config): boolean {
@@ -141,3 +156,4 @@ function passedEnabledGates(story: Story, config: Config): boolean {
     return story.reviewResult.score >= config.minScore;
   return true;
 }
+import { resolve } from "node:path";

@@ -14,7 +14,7 @@ export class OllamaProvider extends ModelProvider {
   }
 
   static override async create(_config: Config): Promise<OllamaProvider> {
-    const ollamaHost = Deno.env.get("OLLAMA_HOST") ?? "http://localhost:11434";
+    const ollamaHost = process.env.OLLAMA_HOST ?? "http://localhost:11434";
     const modelId = ModelProvider.requireEnv("OLLAMA_MODEL");
 
     const modelRuntime = await ModelRuntime.create({

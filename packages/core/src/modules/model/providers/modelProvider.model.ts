@@ -7,7 +7,7 @@ export abstract class ModelProvider {
   abstract readonly model: Model<Api>;
 
   protected static requireEnv(name: string): string {
-    const value = Deno.env.get(name);
+    const value = process.env[name];
     if (!value) {
       throw new Error(`${name} not set (copy .env.example to root .env)`);
     }

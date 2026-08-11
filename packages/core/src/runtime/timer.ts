@@ -1,15 +1,20 @@
+import { EventBus } from "../modules/service/eventBus.service.ts";
+
 export class Timer {
   private startTime = Date.now();
   private timer: ReturnType<typeof setInterval> | undefined;
 
+  constructor(private readonly runId: string) {}
+
   start(): void {
     this.startTime = Date.now();
     this.timer = setInterval(() => {
-      Deno.stdout.writeSync(
-        new TextEncoder().encode(
-          `\r\x1b[K\x1b[36melapsed: ${this.format()}\x1b[0m\n`,
-        ),
-      );
+      EventBus.getInstance().publish({
+        type: "elapsed",
+        runId: this.runId,
+        seconds: Math.floor(this.elapsedMs() / 1000),
+        timestamp: new Date().toISOString(),
+      });
     }, 10_000);
   }
 
@@ -21,12 +26,5 @@ export class Timer {
 
   elapsedMs(): number {
     return Date.now() - this.startTime;
-  }
-
-  private format(): string {
-    const totalSeconds = Math.floor(this.elapsedMs() / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}m ${seconds}s`;
   }
 }
