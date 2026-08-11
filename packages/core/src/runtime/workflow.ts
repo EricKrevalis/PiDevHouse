@@ -1,21 +1,24 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AgentTimeoutError } from "../modules/model/agents/agent.model.ts";
-import { GuideAgent } from "../modules/agents/guide.agent.ts";
-import { OrchestratorAgent } from "../modules/agents/orchestrator.agent.ts";
-import { ProductOwnerAgent } from "../modules/agents/po.agent.ts";
+import {
+  AgentTimeoutError,
+  type AgentContext,
+} from "../modules/model/agents/agent.model.ts";
 import { Config } from "../modules/model/config.model.ts";
+import type { MessagePublisher } from "../modules/model/messagePublisher.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
-import { OllamaProvider } from "../modules/model/providers/ollamaProvider.model.ts";
 import type { Story } from "../modules/model/story.model.ts";
 import type { OutcomeClass } from "../modules/model/summary.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
-import { EventBus } from "../modules/service/eventBus.service.ts";
+import type { WorkflowAgentFactory } from "../modules/model/workflowAgentFactory.model.ts";
+import type { ModelProviderFactory } from "../modules/model/providers/modelProvider.model.ts";
+import type { WorkflowRunner } from "../modules/model/workflowRunner.model.ts";
+import { AgentEventBridge } from "../modules/service/agentEventBridge.ts";
 import { SummaryCollector } from "../modules/service/summaryCollector.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
-import { readStories } from "../modules/tools/story/stories.ts";
-import { runStory } from "./orchestrator.ts";
+import { StoryStore } from "../modules/tools/story/stories.ts";
+import type { StoryExecutor } from "../modules/model/storyExecutor.model.ts";
 import { Timer } from "./timer.ts";
 
 const OUTPUT_ROOT = fileURLToPath(
@@ -35,13 +38,20 @@ export function slugify(request: string): string {
   );
 }
 
-async function createRunDirectory(request: string, runId: string): Promise<Workspace> {
+async function createRunDirectory(
+  request: string,
+  runId: string,
+): Promise<Workspace> {
   const timestamp = new Date()
     .toLocaleString("sv-SE", { timeZone: "Europe/Berlin" })
     .replace(" ", "T")
     .replaceAll(":", "-");
   const slug = slugify(request);
-  const runDir = resolve(OUTPUT_ROOT, slug, `${timestamp}-${runId.slice(0, 8)}`);
+  const runDir = resolve(
+    OUTPUT_ROOT,
+    slug,
+    `${timestamp}-${runId.slice(0, 8)}`,
+  );
 
   const workspaceDir = resolve(runDir, "src");
   const logDir = resolve(runDir, "log");
@@ -56,225 +66,281 @@ async function createRunDirectory(request: string, runId: string): Promise<Works
   return { logDir, workspaceDir, testDir };
 }
 
-export async function runWorkflow(
-  config: Config,
-  runId = crypto.randomUUID(),
-): Promise<boolean> {
-  const summaryCollector = SummaryCollector.getInstance();
-  const timer = new Timer(runId);
-  timer.start();
-  const startedAt = new Date();
+type WorkflowDependencies = {
+  messagePublisher: MessagePublisher;
+  agentEventBridge: AgentEventBridge;
+  storyRunner: StoryExecutor;
+  providerFactory: ModelProviderFactory;
+  agentFactory: WorkflowAgentFactory;
+};
 
-  let workspace: Workspace | undefined;
-  let modelProvider: ModelProvider | undefined;
-  let stories: Story[] = [];
-  let outcome: OutcomeClass = "completed";
-  let failed = false;
-  let errorMessage: string | undefined;
+type TerminalRunStatus =
+  "completed" | "incomplete" | "blocked" | "failed" | "cancelled";
 
-  try {
-    workspace = await createRunDirectory(config.request, runId);
-    modelProvider = await OllamaProvider.create(config);
-    const storyFile = resolve(workspace.workspaceDir, STORIES_PATH);
+export class WorkflowService implements WorkflowRunner {
+  constructor(private readonly dependencies: WorkflowDependencies) {}
 
-    const po = new ProductOwnerAgent(
-      config.request,
-      storyFile,
-      workspace,
-      modelProvider,
-      config.timeoutMinutes,
-      runId,
-    );
+  async run(
+    config: Config,
+    runId: string = crypto.randomUUID(),
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const cancellation = new AbortController();
+    const forwardCancellation = (): void => {
+      cancellation.abort(signal?.reason);
+    };
+    signal?.addEventListener("abort", forwardCancellation, { once: true });
+    if (signal?.aborted) forwardCancellation();
+    const workflowSignal = cancellation.signal;
+    const summaryCollector = new SummaryCollector();
+    const timer = new Timer(runId, this.dependencies.messagePublisher);
+    timer.start();
+    const startedAt = new Date();
 
-    let initialState: { stories: Story[] } | null = null;
-    // PO gets 1 retry
-    for (let attempt = 0; attempt < 2 && initialState === null; attempt++) {
-      if (attempt > 0) {
-        EventBus.getInstance().publish({
-          type: "run_status",
-          runId,
-          status: "retry",
-          attempt,
-          timestamp: now(),
-        });
-      }
-      await po.run();
-      initialState = await readStories(storyFile);
-    }
+    let workspace: Workspace | undefined;
+    let modelProvider: ModelProvider | undefined;
+    let storyStore: StoryStore | undefined;
+    let stories: Story[] = [];
+    let outcome: OutcomeClass = "completed";
+    let failed = false;
+    let errorMessage: string | undefined;
+    let finalStatus: TerminalRunStatus = "completed";
+    let finalDetail: string | undefined;
 
-    if (initialState === null) {
-      outcome = "incomplete";
-      failed = true;
-      EventBus.getInstance().publish({
-        type: "run_status",
-        runId,
-        status: "failed",
-        detail: "Product Owner failed: stories.json missing or invalid",
-        timestamp: now(),
-      });
-    } else if (config.orchestratorEnabled) {
-      EventBus.getInstance().publish({
-        type: "run_info",
-        runId,
-        totalStories: initialState.stories.length,
-        timestamp: now(),
-      });
-      await new OrchestratorAgent(
+    try {
+      workflowSignal.throwIfAborted();
+      workspace = await createRunDirectory(config.request, runId);
+      modelProvider = await this.dependencies.providerFactory.create(
+        config,
+        workflowSignal,
+      );
+      workflowSignal.throwIfAborted();
+      const storyFile = resolve(workspace.workspaceDir, STORIES_PATH);
+      storyStore = new StoryStore(storyFile);
+      const agentDependencies: AgentContext = {
+        eventBridge: this.dependencies.agentEventBridge,
+        summaryCollector,
+        storyStore,
+        messagePublisher: this.dependencies.messagePublisher,
+      };
+
+      const po = this.dependencies.agentFactory.createProductOwner({
+        request: config.request,
+        storiesPath: storyFile,
         workspace,
         modelProvider,
-        config,
-        initialState.stories,
+        timeoutMinutes: config.timeoutMinutes,
         runId,
-      ).run();
-      const finalState = await readStories(storyFile);
-      if (finalState === null) {
+        dependencies: agentDependencies,
+      });
+
+      let initialState: { stories: Story[] } | null = null;
+      // PO gets 1 retry
+      for (let attempt = 0; attempt < 2 && initialState === null; attempt++) {
+        if (attempt > 0) {
+          this.dependencies.messagePublisher.publish({
+            type: "run_status",
+            runId,
+            status: "retry",
+            attempt,
+            timestamp: now(),
+          });
+        }
+        await po.run(undefined, undefined, workflowSignal);
+        initialState = await storyStore.read();
+      }
+
+      if (initialState === null) {
         outcome = "incomplete";
         failed = true;
-        EventBus.getInstance().publish({
-          type: "run_status",
+        finalStatus = "failed";
+        finalDetail = "Product Owner failed: stories.json missing or invalid";
+      } else if (config.orchestratorEnabled) {
+        this.dependencies.messagePublisher.publish({
+          type: "run_info",
           runId,
-          status: "blocked",
-          detail: "stories.json invalid",
+          totalStories: initialState.stories.length,
           timestamp: now(),
         });
-      } else {
-        stories = finalState.stories;
-        if (stories.every((story) => story.status === config.terminalStatus)) {
-          EventBus.getInstance().publish({
-            type: "run_status",
-            runId,
-            status: "completed",
-            outputDir: workspace.workspaceDir,
-            timestamp: now(),
-          });
-          await new GuideAgent(
+        await this.dependencies.agentFactory
+          .createOrchestrator({
             workspace,
             modelProvider,
+            config,
+            stories: initialState.stories,
             runId,
-          ).run();
+            dependencies: agentDependencies,
+          })
+          .run(undefined, undefined, workflowSignal);
+        const finalState = await storyStore.read();
+        if (finalState === null) {
+          outcome = "incomplete";
+          failed = true;
+          finalStatus = "blocked";
+          finalDetail = "stories.json invalid";
         } else {
-          outcome = "incomplete";
-          failed = true;
-          EventBus.getInstance().publish({
-            type: "run_status",
-            runId,
-            status: "incomplete",
-            detail: "Orchestrator did not deliver every story",
-            timestamp: now(),
-          });
+          stories = finalState.stories;
+          if (
+            stories.every((story) => story.status === config.terminalStatus)
+          ) {
+            await this.dependencies.agentFactory
+              .createGuide({
+                workspace,
+                modelProvider,
+                runId,
+                dependencies: agentDependencies,
+              })
+              .run(undefined, undefined, workflowSignal);
+          } else {
+            outcome = "incomplete";
+            failed = true;
+            finalStatus = "incomplete";
+            finalDetail = "Orchestrator did not deliver every story";
+          }
         }
-      }
-    } else {
-      EventBus.getInstance().publish({
-        type: "run_info",
-        runId,
-        totalStories: initialState.stories.length,
-        timestamp: now(),
-      });
-      stories = initialState.stories;
-      const terminal = config.terminalStatus;
-      const ws = workspace;
-      const provider = modelProvider;
-
-      while (stories.some((story) => story.status !== terminal)) {
-        const ready = stories.filter(
-          (story) =>
-            story.status === "todo" &&
-            story.blockedBy.every(
-              (dependency) =>
-                stories.find((item) => item.id === dependency)?.status ===
-                terminal,
-            ),
-        );
-
-        if (ready.length === 0) {
-          outcome = "incomplete";
-          failed = true;
-          EventBus.getInstance().publish({
-            type: "run_status",
-            runId,
-            status: "incomplete",
-            detail: "Remaining stories cannot make progress",
-            timestamp: now(),
-          });
-          break;
-        }
-
-        let index = 0;
-        const workers = Math.min(config.concurrency, ready.length);
-        // ponytail: global story-file mutex; source-file conflicts remain possible
-        // when parallel stories edit the same files; use isolated workspaces to fix
-        await Promise.all(
-          Array.from({ length: workers }, async () => {
-            while (index < ready.length) {
-              const storyId = ready[index++].id;
-              await runStory(storyId, ws, provider, config, runId);
-            }
-          }),
-        );
-
-        const freshState = await readStories(storyFile);
-        if (freshState === null) {
-          outcome = "incomplete";
-          failed = true;
-          EventBus.getInstance().publish({
-            type: "run_status",
-            runId,
-            status: "blocked",
-            detail: "stories.json invalid",
-            timestamp: now(),
-          });
-          break;
-        }
-        stories = freshState.stories;
-      }
-
-      if (!failed) {
-        EventBus.getInstance().publish({
-          type: "run_status",
+      } else {
+        this.dependencies.messagePublisher.publish({
+          type: "run_info",
           runId,
-          status: "completed",
-          outputDir: workspace.workspaceDir,
+          totalStories: initialState.stories.length,
           timestamp: now(),
         });
-        await new GuideAgent(
-          workspace,
-          modelProvider,
-          runId,
-        ).run();
+        stories = initialState.stories;
+        const terminal = config.terminalStatus;
+        const ws = workspace;
+        const provider = modelProvider;
+
+        while (stories.some((story) => story.status !== terminal)) {
+          const ready = stories.filter(
+            (story) =>
+              story.status === "todo" &&
+              story.blockedBy.every(
+                (dependency) =>
+                  stories.find((item) => item.id === dependency)?.status ===
+                  terminal,
+              ),
+          );
+
+          if (ready.length === 0) {
+            outcome = "incomplete";
+            failed = true;
+            finalStatus = "incomplete";
+            finalDetail = "Remaining stories cannot make progress";
+            break;
+          }
+
+          let index = 0;
+          const workers = Math.min(config.concurrency, ready.length);
+          // Source-file conflicts remain possible when parallel stories edit the same files.
+          const workerResults = await Promise.allSettled(
+            Array.from({ length: workers }, async () => {
+              try {
+                while (index < ready.length) {
+                  workflowSignal.throwIfAborted();
+                  const storyId = ready[index++].id;
+                  await this.dependencies.storyRunner.run(
+                    storyId,
+                    ws,
+                    provider,
+                    config,
+                    runId,
+                    agentDependencies,
+                    workflowSignal,
+                  );
+                }
+              } catch (error) {
+                cancellation.abort(error);
+                throw error;
+              }
+            }),
+          );
+          const failedWorker = workerResults.find(
+            (result): result is PromiseRejectedResult =>
+              result.status === "rejected",
+          );
+          if (failedWorker) throw failedWorker.reason;
+
+          const freshState = await storyStore.read();
+          if (freshState === null) {
+            outcome = "incomplete";
+            failed = true;
+            finalStatus = "blocked";
+            finalDetail = "stories.json invalid";
+            break;
+          }
+          stories = freshState.stories;
+        }
+
+        if (!failed) {
+          await this.dependencies.agentFactory
+            .createGuide({
+              workspace,
+              modelProvider,
+              runId,
+              dependencies: agentDependencies,
+            })
+            .run(undefined, undefined, workflowSignal);
+        }
+      }
+    } catch (caught) {
+      if (storyStore !== undefined) {
+        const latestState = await storyStore.read();
+        if (latestState !== null) stories = latestState.stories;
+      }
+      errorMessage = caught instanceof Error ? caught.message : String(caught);
+      outcome = signal?.aborted
+        ? "cancelled"
+        : caught instanceof AgentTimeoutError
+          ? "timeout"
+          : "error";
+      failed = true;
+      finalStatus = signal?.aborted ? "cancelled" : "failed";
+    } finally {
+      timer.stop();
+      try {
+        if (workspace && modelProvider) {
+          await summaryCollector.writeSummary(resolve(workspace.logDir, ".."), {
+            startedAt: startedAt.toISOString(),
+            endedAt: new Date().toISOString(),
+            durationSeconds: Math.floor(timer.elapsedMs() / 1000),
+            outcome,
+            request: config.request,
+            model: modelProvider.model.id,
+            config: config.toJson(),
+            error: errorMessage,
+            stories,
+          });
+        }
+      } catch (summaryError) {
+        failed = true;
+        finalStatus = "failed";
+        outcome = "error";
+        errorMessage =
+          summaryError instanceof Error
+            ? summaryError.message
+            : String(summaryError);
+        finalDetail = "Failed to write run summary";
+      } finally {
+        signal?.removeEventListener("abort", forwardCancellation);
       }
     }
-  } catch (caught) {
-    errorMessage = caught instanceof Error ? caught.message : String(caught);
-    outcome = caught instanceof AgentTimeoutError ? "timeout" : "error";
-    failed = true;
-    EventBus.getInstance().publish({
+    if (signal?.aborted && !failed) {
+      failed = true;
+      finalStatus = "cancelled";
+      outcome = "cancelled";
+      errorMessage = "Workflow cancelled";
+    }
+    this.dependencies.messagePublisher.publish({
       type: "run_status",
       runId,
-      status: "failed",
-      outcome,
-      error: errorMessage,
+      status: finalStatus,
+      detail: finalDetail,
+      outputDir:
+        finalStatus === "completed" ? workspace?.workspaceDir : undefined,
+      outcome: failed ? outcome : undefined,
+      error: failed ? errorMessage : undefined,
       timestamp: now(),
     });
-  } finally {
-    timer.stop();
-    if (workspace && modelProvider) {
-      await summaryCollector.writeSummary(
-        runId,
-        resolve(workspace.logDir, ".."),
-        {
-          startedAt: startedAt.toISOString(),
-          endedAt: new Date().toISOString(),
-          durationSeconds: Math.floor(timer.elapsedMs() / 1000),
-          outcome,
-          request: config.request,
-          model: modelProvider.model.id,
-          config: config.toJson(),
-          error: errorMessage,
-          stories,
-        },
-      );
-    }
+    return failed;
   }
-  return failed;
 }

@@ -1,6 +1,7 @@
 import type { StoryStatus } from "./story.model.ts";
 
-export type OutcomeClass = "completed" | "incomplete" | "timeout" | "error";
+export type OutcomeClass =
+  "completed" | "incomplete" | "timeout" | "error" | "cancelled";
 
 export interface AgentUsage {
   calls: number;

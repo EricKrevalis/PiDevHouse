@@ -10,6 +10,7 @@ import { createSandboxedBashTool } from "./bash.ts";
 import type { StoryField } from "./story/updateStoryFields.ts";
 import { createUpdateStoryFieldsTool } from "./story/updateStoryFields.ts";
 import { createWriteStoriesTool } from "./story/writeStories.ts";
+import type { StoryStore } from "./story/stories.ts";
 
 export const TOOLS = {
   read: "read",
@@ -41,6 +42,7 @@ export function toolName(ref: ToolRef): Tools {
 export function createCustomTools(
   refs: readonly ToolRef[],
   workspace: Workspace,
+  storyStore: StoryStore,
   writeDir = workspace.workspaceDir,
 ): ToolDefinition[] {
   const writableDir = refs.some(
@@ -55,7 +57,11 @@ export function createCustomTools(
       case TOOLS.bash:
         return [
           defineTool(
-            createSandboxedBashTool(workspace, writableDir, [storiesPath]),
+            createSandboxedBashTool(
+              workspace,
+              writableDir,
+              [storiesPath],
+            ),
           ),
         ];
       case TOOLS.write:
@@ -63,11 +69,11 @@ export function createCustomTools(
       case TOOLS.edit:
         return [defineTool(createEditToolDefinition(writeDir))];
       case TOOLS.writeStories:
-        return [createWriteStoriesTool(storiesPath)];
+        return [createWriteStoriesTool(storyStore)];
       case TOOLS.updateStoryFields:
         return [
           createUpdateStoryFieldsTool(
-            storiesPath,
+            storyStore,
             typeof ref === "string" ? [] : ref.config.allowedFields,
           ),
         ];

@@ -7,6 +7,7 @@ import type { Story } from "../../model/story.model.ts";
 import {
   Mutex,
   readStories,
+  StoryStore,
   validateStories,
   writeStoriesFile,
 } from "../story/stories.ts";
@@ -47,6 +48,22 @@ it("writeStoriesFile writes a readable story file", async () => {
   const path = join(dir, "stories.json");
   await writeStoriesFile(path, [story(1)]);
   assert.deepEqual((await readStories(path))?.stories, [story(1)]);
+});
+
+it("StoryStore instances do not share a mutation lock", async () => {
+  const first = new StoryStore("first/stories.json");
+  const second = new StoryStore("second/stories.json");
+  const release = await first.acquire();
+  let secondAcquired = false;
+
+  const secondTurn = second.acquire().then((releaseSecond) => {
+    secondAcquired = true;
+    releaseSecond();
+  });
+  await secondTurn;
+  release();
+
+  assert.equal(secondAcquired, true);
 });
 
 it("validateStories rejects duplicate ids and unknown dependency ids", () => {

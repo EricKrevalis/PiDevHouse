@@ -1,4 +1,4 @@
-import { Agent } from "../model/agents/agent.model.ts";
+import { Agent, type AgentContext } from "../model/agents/agent.model.ts";
 import type { ModelProvider } from "../model/providers/modelProvider.model.ts";
 import type { Workspace } from "../model/workspace.model.ts";
 
@@ -10,11 +10,13 @@ export class GuideAgent extends Agent {
     workspace: Workspace,
     modelProvider: ModelProvider,
     runId: string,
+    dependencies: AgentContext,
   ) {
     super({
       runId,
       workspace,
       modelProvider,
+      ...dependencies,
       systemPrompt: `## Role
 You are the final guide. The generated project in this workspace is complete and tested. Inspect it and tell the user exactly how to view or run the result in the easiest way possible. if possible without dependencies.
 

@@ -1,18 +1,16 @@
 import { type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import {
-  readStories,
   storiesArraySchema,
-  storiesMutex,
+  StoryStore,
   storySchema,
   toolResult,
-  writeStoriesFile,
 } from "./stories.ts";
 
 export type StoryField = Exclude<keyof typeof storySchema.shape, "id">;
 
 export function createUpdateStoryFieldsTool(
-  storiesPath: string,
+  storyStore: StoryStore,
   allowedFields: readonly StoryField[],
 ): ToolDefinition {
   const fieldsSchema = z
@@ -39,9 +37,9 @@ export function createUpdateStoryFieldsTool(
         return toolResult(`Error: ${parsed.error.issues[0]?.message}`);
       }
 
-      const release = await storiesMutex.acquire();
+      const release = await storyStore.acquire();
       try {
-        const state = await readStories(storiesPath);
+        const state = await storyStore.read();
         if (!state) {
           return toolResult("Error: stories.json is missing or invalid");
         }
@@ -59,7 +57,7 @@ export function createUpdateStoryFieldsTool(
           return toolResult(`Error: ${check.error.issues[0]?.message}`);
         }
 
-        await writeStoriesFile(storiesPath, check.data);
+        await storyStore.write(check.data);
         return toolResult(
           `Updated story ${parsed.data.id} (${Object.keys(parsed.data.fields).join(", ")})`,
         );

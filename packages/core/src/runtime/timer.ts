@@ -1,15 +1,18 @@
-import { EventBus } from "../modules/service/eventBus.service.ts";
+import type { MessagePublisher } from "../modules/model/messagePublisher.model.ts";
 
 export class Timer {
   private startTime = Date.now();
   private timer: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly runId: string) {}
+  constructor(
+    private readonly runId: string,
+    private readonly messagePublisher: MessagePublisher,
+  ) {}
 
   start(): void {
     this.startTime = Date.now();
     this.timer = setInterval(() => {
-      EventBus.getInstance().publish({
+      this.messagePublisher.publish({
         type: "elapsed",
         runId: this.runId,
         seconds: Math.floor(this.elapsedMs() / 1000),

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { type Story, STORY_STATUSES } from "../../model/story.model.ts";
 
@@ -74,13 +74,68 @@ export class Mutex {
   }
 }
 
-export const storiesMutex = new Mutex();
+export class StoryStore {
+  private readonly mutex = new Mutex();
 
-export function writeStoriesFile(
+  constructor(readonly path: string) {}
+
+  read(): Promise<{ stories: Story[] } | null> {
+    return readStories(this.path);
+  }
+
+  write(stories: Story[]): Promise<void> {
+    return writeStoriesFile(this.path, stories);
+  }
+
+  acquire(): Promise<() => void> {
+    return this.mutex.acquire();
+  }
+
+  async block(
+    storyId: number,
+    terminalStatus?: Story["status"],
+    allowTerminal = false,
+  ): Promise<boolean> {
+    const release = await this.acquire();
+    try {
+      const state = await this.read();
+      const story = state?.stories.find((item) => item.id === storyId);
+      if (
+        !state ||
+        !story ||
+        story.status === "blocked" ||
+        (story.status === terminalStatus && !allowTerminal)
+      ) {
+        return false;
+      }
+
+      await this.write(
+        state.stories.map((item) =>
+          item.id === storyId ? { ...item, status: "blocked" as const } : item,
+        ),
+      );
+      return true;
+    } finally {
+      release();
+    }
+  }
+}
+
+export async function writeStoriesFile(
   path: string,
   stories: Story[],
 ): Promise<void> {
-  return writeFile(path, `${JSON.stringify({ stories }, null, 2)}\n`);
+  const temporaryPath = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify({ stories }, null, 2)}\n`);
+    await rename(temporaryPath, path);
+  } finally {
+    try {
+      await unlink(temporaryPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
 }
 
 export function toolResult(text: string) {

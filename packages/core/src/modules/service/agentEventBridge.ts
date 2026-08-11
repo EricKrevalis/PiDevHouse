@@ -1,14 +1,12 @@
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { inspect } from "node:util";
 import {
   type AgentSession,
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
-import { Agent } from "../model/agents/agent.model.ts";
-import { Message } from "../model/message.model.ts";
-import { EventBus } from "./eventBus.service.ts";
-
-let instance: AgentEventBridge | undefined;
+import type { Agent } from "../model/agents/agent.model.ts";
+import type { MessagePublisher } from "../model/messagePublisher.model.ts";
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -16,31 +14,35 @@ function timestamp(): string {
 
 function resultText(result: unknown): string {
   if (typeof result === "string") return result;
-  if (typeof result === "object" && result !== null && "text" in result) {
-    const text = (result as { text?: unknown }).text;
-    if (typeof text === "string") return text;
+  if (result instanceof Error) return result.message;
+  if (typeof result === "object" && result !== null) {
+    const value = result as Record<string, unknown>;
+    if (typeof value.text === "string") return value.text;
+    if (Array.isArray(value.content)) {
+      const content = value.content.map(resultText).join("\n");
+      if (content) return content;
+    }
   }
-  return String(result);
+  return inspect(result, { depth: null, breakLength: Infinity });
 }
 
 export class AgentEventBridge {
-  static getInstance(): AgentEventBridge {
-    instance ??= new AgentEventBridge();
-    return instance;
-  }
+  constructor(private readonly publisher: MessagePublisher) {}
 
-  private constructor() {}
-
-  run(agent: Agent, session: AgentSession, story?: number, iteration?: number): void {
-    const publish = (message: Message) => EventBus.getInstance().publish(message);
+  attach(
+    agent: Agent,
+    session: AgentSession,
+    storyId?: number,
+    iteration?: number,
+  ): void {
     const scope = {
       runId: agent.runId,
       agent: agent.name,
-      storyId: story,
+      storyId,
       iteration,
     };
 
-    publish({
+    this.publisher.publish({
       type: "agent_start",
       ...scope,
       timestamp: timestamp(),
@@ -51,23 +53,35 @@ export class AgentEventBridge {
         event.type === "message_update" &&
         event.assistantMessageEvent.type.includes("delta")
       )) {
-        this.writeLog(event, agent, story, iteration);
+        this.writeLog(event, agent, storyId, iteration);
       }
 
       switch (event.type) {
         case "agent_end":
-          publish({ type: "agent_end", ...scope, timestamp: timestamp() });
+          this.publisher.publish({
+            type: "agent_end",
+            ...scope,
+            timestamp: timestamp(),
+          });
           break;
         case "message_update":
           switch (event.assistantMessageEvent.type) {
             case "thinking_start":
-              publish({ type: "thinking_start", ...scope, timestamp: timestamp() });
+              this.publisher.publish({
+                type: "thinking_start",
+                ...scope,
+                timestamp: timestamp(),
+              });
               break;
             case "thinking_end":
-              publish({ type: "thinking_end", ...scope, timestamp: timestamp() });
+              this.publisher.publish({
+                type: "thinking_end",
+                ...scope,
+                timestamp: timestamp(),
+              });
               break;
             case "text_delta":
-              publish({
+              this.publisher.publish({
                 type: "text_delta",
                 ...scope,
                 delta: event.assistantMessageEvent.delta,
@@ -77,10 +91,14 @@ export class AgentEventBridge {
           }
           break;
         case "message_end":
-          publish({ type: "text_end", ...scope, timestamp: timestamp() });
+          this.publisher.publish({
+            type: "text_end",
+            ...scope,
+            timestamp: timestamp(),
+          });
           break;
         case "tool_execution_start":
-          publish({
+          this.publisher.publish({
             type: "tool_start",
             ...scope,
             tool: event.toolName,
@@ -89,7 +107,7 @@ export class AgentEventBridge {
           });
           break;
         case "tool_execution_end":
-          publish({
+          this.publisher.publish({
             type: "tool_end",
             ...scope,
             tool: event.toolName,
@@ -105,14 +123,14 @@ export class AgentEventBridge {
   private writeLog(
     event: object,
     agent: Agent,
-    story?: number,
+    storyId?: number,
     iteration?: number,
   ): void {
     appendFileSync(
       resolve(agent.workspace.logDir, "outputlog.jsonl"),
       `${JSON.stringify({
         timestamp: new Date(),
-        story: story,
+        story: storyId,
         agentName: agent.name,
         iteration: iteration,
         ...event,

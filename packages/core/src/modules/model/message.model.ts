@@ -4,7 +4,8 @@ export type RunStatus =
   | "completed"
   | "incomplete"
   | "blocked"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export type Message =
   | {

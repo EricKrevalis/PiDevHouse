@@ -1,31 +1,27 @@
-import { Message } from "../model/message.model.ts";
+import type { Message } from "../model/message.model.ts";
+import type { MessagePublisher } from "../model/messagePublisher.model.ts";
 
-export interface MessageHandler {
+export interface MessageSubscriber {
   handle(message: Message): void;
 }
 
-let instance: EventBus | undefined;
+export class EventBus implements MessagePublisher {
+  private readonly subscribers = new Set<MessageSubscriber>();
 
-export class EventBus {
-  static getInstance(): EventBus {
-    instance ??= new EventBus();
-    return instance;
+  subscribe(subscriber: MessageSubscriber): void {
+    this.subscribers.add(subscriber);
   }
 
-  private constructor() {}
-
-  private readonly handlers = new Set<MessageHandler>();
-
-  subscribe(handler: MessageHandler): void {
-    this.handlers.add(handler);
+  unsubscribe(subscriber: MessageSubscriber): void {
+    this.subscribers.delete(subscriber);
   }
 
   publish(message: Message): void {
-    for (const handler of this.handlers) {
+    for (const subscriber of this.subscribers) {
       try {
-        handler.handle(message);
+        subscriber.handle(message);
       } catch (error) {
-        console.error(`EventBus handler error: ${error}`);
+        console.error(`EventBus subscriber error: ${error}`);
       }
     }
   }

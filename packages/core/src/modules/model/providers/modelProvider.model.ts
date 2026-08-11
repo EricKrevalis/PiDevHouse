@@ -18,3 +18,7 @@ export abstract class ModelProvider {
     throw new Error("not implemented");
   }
 }
+
+export interface ModelProviderFactory {
+  create(config: Config, signal?: AbortSignal): Promise<ModelProvider>;
+}

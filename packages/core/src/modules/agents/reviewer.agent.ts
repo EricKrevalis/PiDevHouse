@@ -1,4 +1,4 @@
-import { Agent } from "../model/agents/agent.model.ts";
+import { Agent, type AgentContext } from "../model/agents/agent.model.ts";
 import { ModelProvider } from "../model/providers/modelProvider.model.ts";
 import { Workspace } from "../model/workspace.model.ts";
 import { TOOLS } from "../tools/registry.ts";
@@ -24,11 +24,13 @@ export class ReviewerAgent extends Agent {
     modelProvider: ModelProvider,
     timeoutMinutes: number,
     runId: string,
+    dependencies: AgentContext,
   ) {
     super({
       runId,
       workspace,
       modelProvider,
+      ...dependencies,
       timeoutMinutes,
       systemPrompt: `## Role
 You are the code reviewer. Independently assess story ${storyId}; do not change any project file.

@@ -1,4 +1,4 @@
-import { Agent } from "../model/agents/agent.model.ts";
+import { Agent, type AgentContext } from "../model/agents/agent.model.ts";
 import type { ModelProvider } from "../model/providers/modelProvider.model.ts";
 import type { Workspace } from "../model/workspace.model.ts";
 
@@ -13,11 +13,13 @@ export class ProductOwnerAgent extends Agent {
     modelProvider: ModelProvider,
     timeoutMinutes: number,
     runId: string,
+    dependencies: AgentContext,
   ) {
     super({
       runId,
       workspace,
       modelProvider,
+      ...dependencies,
       timeoutMinutes,
       systemPrompt: `## Role
 You are the product owner. Turn the user's request into the smallest ordered set of implementation-ready stories.

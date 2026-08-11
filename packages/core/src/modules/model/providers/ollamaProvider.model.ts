@@ -1,7 +1,10 @@
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Config } from "../config.model.ts";
-import { ModelProvider } from "./modelProvider.model.ts";
+import {
+  ModelProvider,
+  type ModelProviderFactory,
+} from "./modelProvider.model.ts";
 
 export class OllamaProvider extends ModelProvider {
   readonly modelRuntime: ModelRuntime;
@@ -47,5 +50,14 @@ export class OllamaProvider extends ModelProvider {
     if (!model) throw new Error(`ollama model not found: ${modelId}`);
 
     return new OllamaProvider(modelRuntime, model);
+  }
+}
+
+export class OllamaProviderFactory implements ModelProviderFactory {
+  async create(config: Config, signal?: AbortSignal): Promise<ModelProvider> {
+    signal?.throwIfAborted();
+    const provider = await OllamaProvider.create(config);
+    signal?.throwIfAborted();
+    return provider;
   }
 }

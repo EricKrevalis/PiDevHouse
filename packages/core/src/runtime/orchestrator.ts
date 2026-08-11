@@ -1,31 +1,32 @@
+import { resolve } from "node:path";
 import { DeveloperAgent } from "../modules/agents/developer.agent.ts";
 import { ReviewerAgent } from "../modules/agents/reviewer.agent.ts";
 import { TesterAgent } from "../modules/agents/tester.agent.ts";
+import type { AgentContext } from "../modules/model/agents/agent.model.ts";
 import type { Config } from "../modules/model/config.model.ts";
+import type { MessagePublisher } from "../modules/model/messagePublisher.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
-import type { Story, StoryStatus } from "../modules/model/story.model.ts";
+import type { Story } from "../modules/model/story.model.ts";
+import type { StoryExecutor } from "../modules/model/storyExecutor.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
-import { EventBus } from "../modules/service/eventBus.service.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
-import {
-  readStories,
-  storiesMutex,
-  writeStoriesFile,
-} from "../modules/tools/story/stories.ts";
+import { StoryStore } from "../modules/tools/story/stories.ts";
 
 async function getValidationScore(
   workspace: Workspace,
+  storyStore: StoryStore,
   storyId: number,
   variant: "review" | "test",
   runId: string,
+  messagePublisher: MessagePublisher,
 ): Promise<number> {
-  const story = (await readStories(resolve(workspace.workspaceDir, STORIES_PATH)))?.stories.find(
+  const story = (await storyStore.read())?.stories.find(
     (story) => story.id === storyId,
   );
   if (!story) return 0;
   const score =
     variant === "review" ? story.reviewResult.score : story.testResult.score;
-  EventBus.getInstance().publish({
+  messagePublisher.publish({
     type: "story_score",
     runId,
     storyId,
@@ -44,6 +45,8 @@ async function runAgent(
   config: Config,
   iteration: number,
   runId: string,
+  dependencies: AgentContext,
+  signal?: AbortSignal,
 ): Promise<void> {
   await new agentClass(
     storyId,
@@ -52,107 +55,131 @@ async function runAgent(
     modelProvider,
     config.timeoutMinutes,
     runId,
-  ).run(storyId, iteration);
+    dependencies,
+  ).run(storyId, iteration, signal);
 }
 
-export async function runStory(
-  storyId: number,
-  workspace: Workspace,
-  modelProvider: ModelProvider,
-  config: Config,
-  runId: string,
-): Promise<void> {
-  const storyFile = resolve(workspace.workspaceDir, STORIES_PATH);
+export class StoryRunner implements StoryExecutor {
+  constructor(private readonly messagePublisher: MessagePublisher) {}
 
-  for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
-    await runAgent(
-      DeveloperAgent,
+  async run(
+    storyId: number,
+    workspace: Workspace,
+    modelProvider: ModelProvider,
+    config: Config,
+    runId: string,
+    dependencies: AgentContext,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
+      await runAgent(
+        DeveloperAgent,
+        storyId,
+        workspace,
+        modelProvider,
+        config,
+        iteration,
+        runId,
+        dependencies,
+        signal,
+      );
+
+      if (config.reviewerEnabled) {
+        await runAgent(
+          ReviewerAgent,
+          storyId,
+          workspace,
+          modelProvider,
+          config,
+          iteration,
+          runId,
+          dependencies,
+          signal,
+        );
+        if (
+          (await getValidationScore(
+            workspace,
+            dependencies.storyStore,
+            storyId,
+            "review",
+            runId,
+            this.messagePublisher,
+          )) < config.minScore
+        ) {
+          continue;
+        }
+        // TODO when not approved and last run also markBlocked
+        if (!config.testerEnabled) return;
+      }
+
+      if (config.testerEnabled) {
+        await runAgent(
+          TesterAgent,
+          storyId,
+          workspace,
+          modelProvider,
+          config,
+          iteration,
+          runId,
+          dependencies,
+          signal,
+        );
+        if (
+          (await getValidationScore(
+            workspace,
+            dependencies.storyStore,
+            storyId,
+            "test",
+            runId,
+            this.messagePublisher,
+          )) >= config.minScore
+        ) {
+          return;
+        }
+      }
+    }
+
+    await markBlocked(
+      dependencies.storyStore,
       storyId,
-      workspace,
-      modelProvider,
       config,
-      iteration,
       runId,
+      this.messagePublisher,
     );
-
-    if (config.reviewerEnabled) {
-      await runAgent(
-        ReviewerAgent,
-        storyId,
-        workspace,
-        modelProvider,
-        config,
-        iteration,
-        runId,
-      );
-      if (
-        (await getValidationScore(workspace, storyId, "review", runId)) <
-        config.minScore
-      ) {
-        continue;
-      }
-      // TODO when not approved and last run also markBlocked
-      if (!config.testerEnabled) return;
-    }
-
-    if (config.testerEnabled) {
-      await runAgent(
-        TesterAgent,
-        storyId,
-        workspace,
-        modelProvider,
-        config,
-        iteration,
-        runId,
-      );
-      if (
-        (await getValidationScore(workspace, storyId, "test", runId)) >=
-        config.minScore
-      ) {
-        return;
-      }
-    }
   }
-
-  await markBlocked(storyFile, storyId, config, runId);
 }
 
 async function markBlocked(
-  storiesPath: string,
+  storyStore: StoryStore,
   storyId: number,
   config: Config,
   runId: string,
+  messagePublisher: MessagePublisher,
 ): Promise<void> {
-  const release = await storiesMutex.acquire();
-  try {
-    const state = await readStories(storiesPath);
-    if (!state) return;
-    const story = state.stories.find((story) => story.id === storyId);
-    if (
-      !story ||
-      (story.status === config.terminalStatus &&
-        passedEnabledGates(story, config))
-    ) {
-      return;
-    }
+  const state = await storyStore.read();
+  const story = state?.stories.find((item) => item.id === storyId);
+  if (
+    !story ||
+    (story.status === config.terminalStatus &&
+      passedEnabledGates(story, config))
+  ) {
+    return;
+  }
 
-    await writeStoriesFile(
-      storiesPath,
-      state.stories.map((story) =>
-        story.id === storyId
-          ? { ...story, status: "blocked" as StoryStatus }
-          : story,
-      ),
-    );
-    EventBus.getInstance().publish({
+  if (
+    await storyStore.block(
+      storyId,
+      config.terminalStatus,
+      story.status === config.terminalStatus,
+    )
+  ) {
+    messagePublisher.publish({
       type: "story_blocked",
       runId,
       storyId,
       detail: "iteration budget exhausted without passing the enabled gates",
       timestamp: new Date().toISOString(),
     });
-  } finally {
-    release();
   }
 }
 
@@ -162,4 +189,3 @@ function passedEnabledGates(story: Story, config: Config): boolean {
     return story.reviewResult.score >= config.minScore;
   return true;
 }
-import { resolve } from "node:path";

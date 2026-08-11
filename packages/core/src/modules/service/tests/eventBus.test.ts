@@ -1,21 +1,23 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { it } from "vitest";
-import { EventBus } from "../eventBus.service.ts";
+import { EventBus, type MessageSubscriber } from "../eventBus.service.ts";
 
 it("publishes typed messages to subscribers", () => {
   let received = false;
   const runId = `test-${randomUUID()}`;
-
-  EventBus.getInstance().subscribe({
+  const eventBus = new EventBus();
+  const subscriber: MessageSubscriber = {
     handle(message) {
       if (message.type === "run_info" && message.runId === runId) {
         received = message.totalStories === 2;
       }
     },
-  });
+  };
 
-  EventBus.getInstance().publish({
+  eventBus.subscribe(subscriber);
+
+  eventBus.publish({
     type: "run_info",
     runId,
     totalStories: 2,
@@ -23,4 +25,5 @@ it("publishes typed messages to subscribers", () => {
   });
 
   assert.equal(received, true);
+  eventBus.unsubscribe(subscriber);
 });

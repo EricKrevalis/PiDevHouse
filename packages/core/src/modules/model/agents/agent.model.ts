@@ -5,14 +5,23 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { AgentEventBridge } from "../../service/agentEventBridge.ts";
-import { SummaryCollector } from "../../service/summaryCollector.ts";
+import type { AgentEventBridge } from "../../service/agentEventBridge.ts";
+import type { SummaryCollector } from "../../service/summaryCollector.ts";
 import { createCustomTools, toolName, ToolRef } from "../../tools/registry.ts";
+import type { StoryStore } from "../../tools/story/stories.ts";
 import { scopeToolCalls } from "../../tools/scope.ts";
+import type { MessagePublisher } from "../messagePublisher.model.ts";
 import { ModelProvider } from "../providers/modelProvider.model.ts";
 import { Workspace } from "../workspace.model.ts";
 
-interface AgentOptions {
+export interface AgentContext {
+  eventBridge: AgentEventBridge;
+  summaryCollector: SummaryCollector;
+  storyStore: StoryStore;
+  messagePublisher: MessagePublisher;
+}
+
+interface AgentOptions extends AgentContext {
   runId: string;
   workspace: Workspace;
   modelProvider: ModelProvider;
@@ -35,6 +44,10 @@ export abstract class Agent {
     this.runId = options.runId;
     this.workspace = options.workspace;
     this.modelProvider = options.modelProvider;
+    this.eventBridge = options.eventBridge;
+    this.summaryCollector = options.summaryCollector;
+    this.storyStore = options.storyStore;
+    this.messagePublisher = options.messagePublisher;
     this.timeoutMinutes = options.timeoutMinutes ?? 0;
     this.systemPrompt = this.withTimeoutPrompt(
       options.systemPrompt,
@@ -46,16 +59,26 @@ export abstract class Agent {
   readonly runId: string;
   readonly workspace: Workspace;
   readonly modelProvider: ModelProvider;
+  readonly eventBridge: AgentEventBridge;
+  readonly summaryCollector: SummaryCollector;
+  readonly storyStore: StoryStore;
+  readonly messagePublisher: MessagePublisher;
   readonly systemPrompt: string;
   readonly userPrompt: string;
   readonly timeoutMinutes: number;
+  protected abortSignal: AbortSignal | undefined;
 
   protected get writeDir(): string {
     return this.workspace.workspaceDir;
   }
 
   protected buildCustomTools(): ReturnType<typeof createCustomTools> {
-    return createCustomTools(this.tools, this.workspace, this.writeDir);
+    return createCustomTools(
+      this.tools,
+      this.workspace,
+      this.storyStore,
+      this.writeDir,
+    );
   }
 
   private withTimeoutPrompt(prompt: string, timeoutMinutes: number): string {
@@ -63,57 +86,97 @@ export abstract class Agent {
     return `${prompt}\n\n## Timeout\nYou have ${timeoutMinutes} minute(s) for this run. Prioritize and finish within the limit; an unfinished run is a failure.`;
   }
 
-  async run(story?: number, iteration?: number): Promise<void> {
-    const eventBridge = AgentEventBridge.getInstance();
-
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: this.workspace.workspaceDir,
-      agentDir: this.workspace.workspaceDir,
-      systemPrompt: this.systemPrompt,
-    });
-    await resourceLoader.reload();
-
-    const { session } = await createAgentSession({
-      cwd: this.workspace.workspaceDir,
-      model: this.modelProvider.model,
-      modelRuntime: this.modelProvider.modelRuntime,
-      tools: this.tools.map(toolName),
-      customTools: this.buildCustomTools(),
-      resourceLoader: resourceLoader,
-      sessionManager: SessionManager.inMemory(),
-      settingsManager: SettingsManager.inMemory(),
-    });
-
-    eventBridge.run(this, session, story, iteration);
-    SummaryCollector.getInstance().run(this, session, story, iteration);
-    scopeToolCalls(session.agent, this.workspace.workspaceDir, this.writeDir);
-
+  async run(
+    storyId?: number,
+    iteration?: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    this.abortSignal = signal;
     try {
-      await this.prompt(session);
+      signal?.throwIfAborted();
+      const resourceLoader = new DefaultResourceLoader({
+        cwd: this.workspace.workspaceDir,
+        agentDir: this.workspace.workspaceDir,
+        systemPrompt: this.systemPrompt,
+      });
+      await resourceLoader.reload();
+      signal?.throwIfAborted();
+
+      const { session } = await createAgentSession({
+        cwd: this.workspace.workspaceDir,
+        model: this.modelProvider.model,
+        modelRuntime: this.modelProvider.modelRuntime,
+        tools: this.tools.map(toolName),
+        customTools: this.buildCustomTools(),
+        resourceLoader: resourceLoader,
+        sessionManager: SessionManager.inMemory(),
+        settingsManager: SettingsManager.inMemory(),
+      });
+
+      let promptCompleted = false;
+      try {
+        this.eventBridge.attach(this, session, storyId, iteration);
+        this.summaryCollector.attach(this, session, storyId, iteration);
+        scopeToolCalls(
+          session.agent,
+          this.workspace.workspaceDir,
+          this.writeDir,
+        );
+        await this.prompt(session, signal);
+        promptCompleted = true;
+      } finally {
+        if (!promptCompleted) {
+          await session.abort().catch(() => {});
+        }
+        session.dispose();
+      }
     } finally {
-      session.dispose();
+      this.abortSignal = undefined;
     }
   }
 
-  private async prompt(session: AgentSession): Promise<void> {
+  private async prompt(
+    session: AgentSession,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
     const timeoutMinutes = this.timeoutMinutes;
-    if (timeoutMinutes <= 0) {
-      await session.prompt(this.userPrompt);
-      return;
-    }
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new AgentTimeoutError(timeoutMinutes)),
-        timeoutMinutes * 60_000,
-      );
-    });
     const promptPromise = session.prompt(this.userPrompt);
     promptPromise.catch(() => {});
+    const waits: Array<Promise<unknown>> = [promptPromise];
+    if (timeoutMinutes > 0) {
+      waits.push(
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new AgentTimeoutError(timeoutMinutes)),
+            timeoutMinutes * 60_000,
+          );
+        }),
+      );
+    }
+    let abortHandler: (() => void) | undefined;
+    if (signal !== undefined) {
+      waits.push(
+        new Promise<never>((_, reject) => {
+          abortHandler = (): void => {
+            reject(
+              signal.reason instanceof Error
+                ? signal.reason
+                : new Error("Agent run cancelled"),
+            );
+          };
+          signal.addEventListener("abort", abortHandler, { once: true });
+        }),
+      );
+    }
     try {
-      await Promise.race([promptPromise, timeout]);
+      await Promise.race(waits);
     } finally {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
+      if (signal !== undefined && abortHandler !== undefined) {
+        signal.removeEventListener("abort", abortHandler);
+      }
     }
   }
 }

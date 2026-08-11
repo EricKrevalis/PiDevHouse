@@ -1,10 +1,11 @@
 import { Message } from "../model/message.model.ts";
-import { EventBus, type MessageHandler } from "../service/eventBus.service.ts";
+import {
+  EventBus,
+  type MessageSubscriber,
+} from "../service/eventBus.service.ts";
 
 const COLOR = "\x1b[36m";
 const RESET = "\x1b[0m";
-let instance: TerminalView | undefined;
-
 function writeOutput(message: string): void {
   process.stdout.write(message);
 }
@@ -15,14 +16,9 @@ interface AgentScope {
   iteration?: number;
 }
 
-export class TerminalView implements MessageHandler {
-  static getInstance(): TerminalView {
-    instance ??= new TerminalView();
-    return instance;
-  }
-
-  private constructor() {
-    EventBus.getInstance().subscribe(this);
+export class TerminalView implements MessageSubscriber {
+  constructor(private readonly eventBus: EventBus) {
+    this.eventBus.subscribe(this);
   }
 
   private readonly thinking = new ThinkingAnimation();
@@ -31,6 +27,11 @@ export class TerminalView implements MessageHandler {
   // parallel runs interleave on one stdout anyway
   private isStreamBeginning = true;
   private streamNeedsNewline = false;
+
+  close(): void {
+    this.thinking.stop();
+    this.eventBus.unsubscribe(this);
+  }
 
   handle(message: Message): void {
     switch (message.type) {
@@ -47,7 +48,7 @@ export class TerminalView implements MessageHandler {
           this.writeLabel(message, "\n");
           this.isStreamBeginning = false;
         }
-        this.writeLabel(message, message.delta);
+        writeOutput(message.delta);
         this.streamNeedsNewline = !message.delta.endsWith("\n");
         break;
       case "thinking_start":
@@ -78,7 +79,9 @@ export class TerminalView implements MessageHandler {
         );
         break;
       case "story_blocked":
-        writeOutput(`\nStory ${message.storyId} marked blocked: ${message.detail}\n`);
+        writeOutput(
+          `\nStory ${message.storyId} marked blocked: ${message.detail}\n`,
+        );
         break;
       case "run_status":
         this.renderRunStatus(message);
@@ -87,7 +90,9 @@ export class TerminalView implements MessageHandler {
         this.storyCount = message.totalStories;
         break;
       case "elapsed":
-        writeOutput(`\r\x1b[K\x1b[36melapsed: ${this.formatElapsed(message.seconds)}\x1b[0m\n`);
+        writeOutput(
+          `\r\x1b[K\x1b[36melapsed: ${this.formatElapsed(message.seconds)}\x1b[0m\n`,
+        );
         break;
     }
   }
@@ -105,7 +110,10 @@ export class TerminalView implements MessageHandler {
     this.isStreamBeginning = true;
   }
 
-  private renderRunStatus(message: Extract<Message, { type: "run_status" }>): void {
+  private renderRunStatus(
+    message: Extract<Message, { type: "run_status" }>,
+  ): void {
+    if (message.status !== "retry") this.thinking.stop();
     switch (message.status) {
       case "retry":
         writeOutput(`\nProduct Owner retry ${message.attempt}\n`);
@@ -121,10 +129,17 @@ export class TerminalView implements MessageHandler {
         break;
       case "failed":
         if (message.outcome) {
-          writeOutput(`\n=== Run failed (${message.outcome}) ===\n${message.error}\n`);
+          writeOutput(
+            `\n=== Run failed (${message.outcome}) ===\n${message.error ?? message.detail ?? ""}\n`,
+          );
         } else {
           writeOutput(`\n${message.detail}\n`);
         }
+        break;
+      case "cancelled":
+        writeOutput(
+          `\n=== Run cancelled ===\n${message.detail ?? message.error}\n`,
+        );
         break;
     }
   }
@@ -138,7 +153,10 @@ export class TerminalView implements MessageHandler {
       .join(" · ");
   }
 
-  private formatToolDetails(toolName: string, args?: Record<string, unknown>): string {
+  private formatToolDetails(
+    toolName: string,
+    args?: Record<string, unknown>,
+  ): string {
     if (!args) return "";
 
     if (toolName === "bash" && typeof args.command === "string") {
@@ -181,10 +199,10 @@ class ThinkingAnimation {
   start(): void {
     this.stop();
     this.index = 0;
-    writeOutput(`\r\x1b[K${this.label}: ${this.frames[0]}`);
+    writeOutput(`\r\x1b[K${this.label}${this.frames[0]}`);
     this.timer = setInterval(() => {
       this.index = (this.index + 1) % this.frames.length;
-      writeOutput(`\r\x1b[K${this.label}: ${this.frames[this.index]}`);
+      writeOutput(`\r\x1b[K${this.label}${this.frames[this.index]}`);
     }, 300);
   }
 

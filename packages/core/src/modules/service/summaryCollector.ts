@@ -1,11 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSession,
+  AgentSessionEvent,
+} from "@earendil-works/pi-coding-agent";
 import type { Agent } from "../model/agents/agent.model.ts";
 import type { Story } from "../model/story.model.ts";
 import type { AgentUsage, Summary } from "../model/summary.model.ts";
-
-let instance: SummaryCollector | undefined;
 
 interface StoryTrack {
   iterations: number;
@@ -33,35 +34,24 @@ function messageText(content: unknown): string {
 }
 
 export class SummaryCollector {
-  static getInstance(): SummaryCollector {
-    instance ??= new SummaryCollector();
-    return instance;
-  }
+  private readonly state: RunState = { agents: new Map(), tracks: new Map() };
 
-  private constructor() {}
-
-  private readonly runs = new Map<string, RunState>();
-
-  private state(runId: string): RunState {
-    let run = this.runs.get(runId);
-    if (run === undefined) {
-      run = { agents: new Map(), tracks: new Map() };
-      this.runs.set(runId, run);
-    }
-    return run;
-  }
-
-  run(agent: Agent, session: AgentSession, story?: number, iteration?: number): void {
-    session.subscribe((event) => this.record(event, agent, story, iteration));
+  attach(
+    agent: Agent,
+    session: AgentSession,
+    storyId?: number,
+    iteration?: number,
+  ): void {
+    session.subscribe((event) => this.record(event, agent, storyId, iteration));
   }
 
   private record(
     event: AgentSessionEvent,
     agent: Agent,
-    story: number | undefined,
+    storyId: number | undefined,
     iteration: number | undefined,
   ): void {
-    const state = this.state(agent.runId);
+    const state = this.state;
     if (event.type === "message_end" && event.message.role === "assistant") {
       const usage = state.agents.get(agent.name) ?? {
         calls: 0,
@@ -81,8 +71,8 @@ export class SummaryCollector {
       }
     }
 
-    if (story === undefined) return;
-    const track = state.tracks.get(story) ?? {
+    if (storyId === undefined) return;
+    const track = state.tracks.get(storyId) ?? {
       iterations: 0,
       reviewTrajectory: [],
       testTrajectory: [],
@@ -102,21 +92,22 @@ export class SummaryCollector {
         track.testTrajectory.push(fields.testResult.score);
       }
     }
-    state.tracks.set(story, track);
+    state.tracks.set(storyId, track);
   }
 
-  async writeSummary(runId: string, runDir: string, metadata: RunMetadata): Promise<void> {
-    const state = this.state(runId);
+  async writeSummary(runDir: string, metadata: RunMetadata): Promise<void> {
     const { stories, ...run } = metadata;
-    const summary: Summary = { ...run, ...this.collect(state, stories) };
+    const summary: Summary = { ...run, ...this.collect(this.state, stories) };
     await writeFile(
       resolve(runDir, "summary.json"),
       `${JSON.stringify(summary, null, 2)}\n`,
     );
-    this.runs.delete(runId);
   }
 
-  private collect(state: RunState, stories: Story[]): Pick<Summary, "agents" | "stories" | "guide"> {
+  private collect(
+    state: RunState,
+    stories: Story[],
+  ): Pick<Summary, "agents" | "stories" | "guide"> {
     return {
       agents: Object.fromEntries(state.agents),
       stories: stories.map((story) => ({
