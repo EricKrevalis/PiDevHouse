@@ -21,6 +21,12 @@ venv/
 # Node
 node_modules/
 .turbo/
+dist/
+/desktop/
+
+# Rust / Tauri
+target/
+packages/desktop/src-tauri/target/
 
 # Generated runs
 /output/*

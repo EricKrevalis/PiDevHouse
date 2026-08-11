@@ -1,3 +1,4 @@
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Summary } from "../packages/core/src/modules/model/summary.model.ts";
 
@@ -44,18 +45,21 @@ function markdownTable(headers: string[], rows: string[][]): string {
 }
 
 async function main(): Promise<void> {
-  const csvPath = Deno.args.find((arg) => arg.startsWith("--csv="))?.slice(6);
+  const csvPath = process.argv.find((arg) => arg.startsWith("--csv="))?.slice(6);
   const runs: Run[] = [];
 
-  for await (const group of Deno.readDir(OUTPUT_ROOT)) {
-    if (!group.isDirectory) continue;
-    for await (const entry of Deno.readDir(resolve(OUTPUT_ROOT, group.name))) {
-      if (!entry.isDirectory) continue;
+  for (const group of await readdir(OUTPUT_ROOT, { withFileTypes: true })) {
+    if (!group.isDirectory()) continue;
+    for (const entry of await readdir(resolve(OUTPUT_ROOT, group.name), {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
       const runName = `${group.name}/${entry.name}`;
       try {
         const summary = JSON.parse(
-          await Deno.readTextFile(
+          await readFile(
             resolve(OUTPUT_ROOT, group.name, entry.name, "summary.json"),
+            "utf8",
           ),
         ) as Summary;
         runs.push({ name: runName, summary });
@@ -166,7 +170,7 @@ async function main(): Promise<void> {
         summary.config.orchestratorEnabled,
       ].join(",");
     });
-    await Deno.writeTextFile(
+    await writeFile(
       csvPath,
       `${header.join(",")}\n${rows.join("\n")}\n`,
     );

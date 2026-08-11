@@ -1,3 +1,5 @@
+import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import type { Summary } from "../packages/core/src/modules/model/summary.model.ts";
 
@@ -11,11 +13,13 @@ const DEFAULT_REQUEST = "Build an interactive web todo app.";
 async function latestRunDir(): Promise<string | null> {
   let newest: string | null = null;
   let newestMtime = 0;
-  for await (const group of Deno.readDir(OUTPUT_ROOT)) {
-    if (!group.isDirectory) continue;
-    for await (const entry of Deno.readDir(resolve(OUTPUT_ROOT, group.name))) {
-      if (!entry.isDirectory) continue;
-      const mtime = (await Deno.stat(
+  for (const group of await readdir(OUTPUT_ROOT, { withFileTypes: true })) {
+    if (!group.isDirectory()) continue;
+    for (const entry of await readdir(resolve(OUTPUT_ROOT, group.name), {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
+      const mtime = (await stat(
         resolve(OUTPUT_ROOT, group.name, entry.name),
       )).mtime;
       if (mtime && mtime.getTime() > newestMtime) {
@@ -62,9 +66,9 @@ function buildFlags(
 }
 
 async function main(): Promise<void> {
-  const specPath = Deno.args[0];
+  const specPath = process.argv[2];
   const spec: Spec = specPath
-    ? (JSON.parse(await Deno.readTextFile(specPath)) as Spec)
+    ? (JSON.parse(await readFile(specPath, "utf8")) as Spec)
     : {};
   const repeat = spec.repeat ?? 3;
   const variants: Variant[] = (spec.variants ?? [{}]).map((variant) => ({
@@ -81,24 +85,22 @@ async function main(): Promise<void> {
           variantIndex + 1
         }/${variants.length}, run ${runIndex}/${repeat} ===`,
       );
-      const status = await new Deno.Command("deno", {
-        args: [
-          "run",
-          "-A",
-          MAIN_PATH,
-          ...variant.flags,
-          variant.request,
-        ],
-        stdout: "inherit",
-        stderr: "inherit",
-      }).spawn().status;
+      const status = await new Promise<number>((resolveExit) => {
+        const child = spawn(
+          "bun",
+          [MAIN_PATH, ...variant.flags, variant.request],
+          { stdio: "inherit" },
+        );
+        child.on("exit", (code) => resolveExit(code ?? 1));
+      });
 
       const runName = (await latestRunDir()) ?? "";
       let summary: Summary | null = null;
       try {
         summary = JSON.parse(
-          await Deno.readTextFile(
+          await readFile(
             resolve(OUTPUT_ROOT, runName, "summary.json"),
+            "utf8",
           ),
         ) as Summary;
       } catch {
@@ -107,14 +109,14 @@ async function main(): Promise<void> {
         variantIndex: variantIndex + 1,
         runIndex,
         runName,
-        exitCode: status.code,
+        exitCode: status,
         summary,
       });
     }
   }
 
   const reportPath = resolve(OUTPUT_ROOT, `experiment-${Date.now()}.json`);
-  await Deno.writeTextFile(
+  await writeFile(
     reportPath,
     `${JSON.stringify({ spec: { repeat, variants }, results }, null, 2)}\n`,
   );

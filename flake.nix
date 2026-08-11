@@ -21,12 +21,46 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
+          # Official Tauri development shell per the NixOS Wiki
+          # (https://wiki.nixos.org/wiki/Tauri), plus the project toolchain
+          # (bun, bubblewrap) and runtime libraries verified to load WebKitGTK.
           default = pkgs.mkShell {
-            packages = with pkgs; [
-              deno
-              nodejs
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+              wrapGAppsHook4
+              cargo
+              rustc
+              bun
               bubblewrap
             ];
+
+            buildInputs = with pkgs; [
+              librsvg
+              webkitgtk_4_1
+              gtk3
+              libsoup_3
+              glib
+              glib-networking
+              gdk-pixbuf
+              libsecret
+              openssl
+            ];
+
+            LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
+              webkitgtk_4_1
+              gtk3
+              glib
+              libsoup_3
+              glib-networking
+              gdk-pixbuf
+              libsecret
+              librsvg
+              stdenv.cc.cc.lib
+            ];
+
+            shellHook = ''
+              export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH"
+            '';
           };
         }
       );
