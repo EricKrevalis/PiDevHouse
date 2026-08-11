@@ -11,5 +11,5 @@
 - Never pass functions as parameters.
 - Use classes for stateful logic and functions for stateless logic. Keep implementation details private.
 - Use classes instead of functions that return functions.
-- Never write tests!
-- Before finishing, run `deno check src/main.ts`.
+- Keep tests only in module-local `tests/` directories when they are essential for security or integrity.
+- Before finishing, run `bun run check` and `bun run test`.
