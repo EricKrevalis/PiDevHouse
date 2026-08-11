@@ -1,13 +1,13 @@
 # PiDevHouse Desktop
 
-This package is the SvelteKit UI scaffold for PiDevHouse. It does not yet run
-the agent workflow or provide a packaged desktop application; see the
-[project plan](../../docs/plan.md).
+This package contains the SvelteKit UI and Tauri desktop shell for PiDevHouse.
 
 Run commands from the repository root:
 
 ```sh
-deno task dev    # start Vite and the core type watcher
-deno task check  # run core and desktop checks
-deno task build  # build the SvelteKit web application
+bun run dev          # start the API and Vite development servers
+bun run check        # run core and desktop checks
+bun run build        # build the SvelteKit web application
+bun run desktop:dev  # open the Tauri development window
+bun run desktop:build
 ```

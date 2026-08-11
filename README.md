@@ -7,7 +7,15 @@ developer, reviewer, and tester agents complete and validate each story.
 ## Status
 
 The core is currently runnable from the command line. The desktop package is a
-SvelteKit UI scaffold and is not connected to the core yet.
+SvelteKit frontend wrapped in a Tauri window, connected to the core over WebSocket.
+
+The core emits a typed, JSON-serializable event stream (the `Message` model in
+`packages/core/src/modules/model/message.model.ts`) on an in-process event bus.
+Two views consume it: the terminal renderer (`TerminalView`, in-process) and
+the WebSocket forwarder (the SvelteKit frontend). Events and UI are decoupled —
+the core workflow only publishes messages and never renders terminal text.
+Every message carries a run id; clients subscribe to a run over WebSocket (with
+buffered replay on connect) and can fetch run state from `GET /runs/:runId`.
 
 The intended architecture is one core service with two clients:
 
@@ -21,7 +29,7 @@ thin client of that API rather than a second implementation of the workflow.
 
 ## Requirements
 
-- [Deno](https://deno.com/) (the provided Nix shell includes it)
+- [Bun](https://bun.sh/) and [Rust](https://www.rust-lang.org/) (the provided Nix shell includes them)
 - [Ollama](https://ollama.com/) running locally
 - An Ollama model suitable for coding tasks
 
@@ -39,20 +47,25 @@ ollama pull qwen3.5:9b
 Set `OLLAMA_MODEL` in `.env` to the model you pulled. `OLLAMA_HOST` defaults to
 `http://localhost:11434` when it is not set.
 
-## Run the CLI
+## Run the flow directly
 
 ```sh
-deno task core Build an interactive web todo app
+bun run core "Build an interactive web todo app"
 ```
 
-The request is optional; without one, the core starts only the API service
-(WebSocket on port 8765) that the desktop app connects to, instead of running
-the default request.
+This runs the complete core workflow directly in the terminal. It does not
+start the API or development server.
+
+To start only the API service for the desktop app, omit the request:
+
+```sh
+bun run core
+```
 
 ### Flags
 
-Every knob is also available as a `PIDEV_*` environment variable (for example
-`PIDEV_MAX_ITERATIONS`):
+Only `PIDEV_PORT` configures the HTTP server port (default 8765); all other
+knobs are flags:
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -69,19 +82,19 @@ Each run creates artifacts under `output/<request>/<timestamp>/`:
 - `src/` is the generated workspace, including `stories.json`.
 - `log/outputlog.jsonl` records structured agent activity.
 - `test/` is the tester's persistent scratch directory, bound into its sandbox.
-- `summary.json` (also copied as `run.json`) records outcome, exit code,
-  request, model, config, durations, token totals per agent, and per-story
-  scores, trajectories, and statuses on every termination path.
+- `summary.json` records outcome, request, model, config, durations,
+  per-agent call and token tallies (when the model provider reports usage),
+  and per-story scores, trajectories, and statuses on every termination path.
 
 ## Aggregate runs
 
 ```sh
-deno task report                     # Markdown tables for all runs
-deno task report --csv=output/summary.csv
+bun run report                     # Markdown tables for all runs
+bun run report --csv=output/summary.csv
 ```
 
 ```sh
-deno task experiment [spec.json]     # variant matrix × ≥3 runs
+bun run experiment [spec.json]     # variant matrix × ≥3 runs
 ```
 
 `experiment` runs the CLI once per (variant, repeat) pair. Without a spec file
@@ -105,13 +118,15 @@ are aggregated into `output/experiment-<timestamp>.json`.
 Run these commands from the repository root:
 
 ```sh
-deno task dev
-deno task check
-deno task test
-deno task build
+bun run dev
+bun run check
+bun run test
+bun run build
+bun run desktop:dev
 ```
 
-`dev` starts the API service and the desktop development server, watching both.
+`dev` starts the API service and the Vite development server, watching both.
+`desktop:dev` opens the Tauri development window.
 `check` validates both packages. `test` invokes the core test suite when test
 modules are present. `build` builds the desktop application.
 
