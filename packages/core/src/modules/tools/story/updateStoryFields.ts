@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   readStories,
   storiesArraySchema,
+  storiesMutex,
   storySchema,
   toolResult,
   writeStoriesFile,
@@ -38,28 +39,33 @@ export function createUpdateStoryFieldsTool(
         return toolResult(`Error: ${parsed.error.issues[0]?.message}`);
       }
 
-      const state = await readStories(storiesPath);
-      if (!state) {
-        return toolResult("Error: stories.json is missing or invalid");
-      }
-      if (!state.stories.some((story) => story.id === parsed.data.id)) {
-        return toolResult(`Error: story ${parsed.data.id} not found`);
-      }
+      const release = await storiesMutex.acquire();
+      try {
+        const state = await readStories(storiesPath);
+        if (!state) {
+          return toolResult("Error: stories.json is missing or invalid");
+        }
+        if (!state.stories.some((story) => story.id === parsed.data.id)) {
+          return toolResult(`Error: story ${parsed.data.id} not found`);
+        }
 
-      const updated = state.stories.map((story) =>
-        story.id === parsed.data.id
-          ? { ...story, ...parsed.data.fields }
-          : story,
-      );
-      const check = storiesArraySchema.safeParse(updated);
-      if (!check.success) {
-        return toolResult(`Error: ${check.error.issues[0]?.message}`);
-      }
+        const updated = state.stories.map((story) =>
+          story.id === parsed.data.id
+            ? { ...story, ...parsed.data.fields }
+            : story,
+        );
+        const check = storiesArraySchema.safeParse(updated);
+        if (!check.success) {
+          return toolResult(`Error: ${check.error.issues[0]?.message}`);
+        }
 
-      await writeStoriesFile(storiesPath, check.data);
-      return toolResult(
-        `Updated story ${parsed.data.id} (${Object.keys(parsed.data.fields).join(", ")})`,
-      );
+        await writeStoriesFile(storiesPath, check.data);
+        return toolResult(
+          `Updated story ${parsed.data.id} (${Object.keys(parsed.data.fields).join(", ")})`,
+        );
+      } finally {
+        release();
+      }
     },
   };
 }

@@ -9,6 +9,7 @@ import { EventBus } from "../modules/service/eventBus.service.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import {
   readStories,
+  storiesMutex,
   writeStoriesFile,
 } from "../modules/tools/story/stories.ts";
 
@@ -122,32 +123,37 @@ async function markBlocked(
   config: Config,
   runId: string,
 ): Promise<void> {
-  const state = await readStories(storiesPath);
-  if (!state) return;
-  const story = state.stories.find((story) => story.id === storyId);
-  if (
-    !story ||
-    (story.status === config.terminalStatus &&
-      passedEnabledGates(story, config))
-  ) {
-    return;
-  }
+  const release = await storiesMutex.acquire();
+  try {
+    const state = await readStories(storiesPath);
+    if (!state) return;
+    const story = state.stories.find((story) => story.id === storyId);
+    if (
+      !story ||
+      (story.status === config.terminalStatus &&
+        passedEnabledGates(story, config))
+    ) {
+      return;
+    }
 
-  await writeStoriesFile(
-    storiesPath,
-    state.stories.map((story) =>
-      story.id === storyId
-        ? { ...story, status: "blocked" as StoryStatus }
-        : story,
-    ),
-  );
-  EventBus.getInstance().publish({
-    type: "story_blocked",
-    runId,
-    storyId,
-    detail: "iteration budget exhausted without passing the enabled gates",
-    timestamp: new Date().toISOString(),
-  });
+    await writeStoriesFile(
+      storiesPath,
+      state.stories.map((story) =>
+        story.id === storyId
+          ? { ...story, status: "blocked" as StoryStatus }
+          : story,
+      ),
+    );
+    EventBus.getInstance().publish({
+      type: "story_blocked",
+      runId,
+      storyId,
+      detail: "iteration budget exhausted without passing the enabled gates",
+      timestamp: new Date().toISOString(),
+    });
+  } finally {
+    release();
+  }
 }
 
 function passedEnabledGates(story: Story, config: Config): boolean {

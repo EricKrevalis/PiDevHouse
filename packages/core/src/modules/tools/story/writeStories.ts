@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   storiesArraySchema,
   storiesFileSchema,
+  storiesMutex,
   toolResult,
   writeStoriesFile,
 } from "./stories.ts";
@@ -22,7 +23,12 @@ export function createWriteStoriesTool(storiesPath: string): ToolDefinition {
       if (!check.success) {
         return toolResult(`Error: ${check.error.issues[0]?.message}`);
       }
-      await writeStoriesFile(storiesPath, check.data);
+      const release = await storiesMutex.acquire();
+      try {
+        await writeStoriesFile(storiesPath, check.data);
+      } finally {
+        release();
+      }
       return toolResult(`Wrote ${check.data.length} stories to stories.json`);
     },
   };
