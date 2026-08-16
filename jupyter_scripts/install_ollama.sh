@@ -23,8 +23,8 @@ export OLLAMA_MODELS="$MODEL_DIR"
 export OLLAMA_HOST="127.0.0.1:11434"
 export OLLAMA_ORIGINS="*"
 export OLLAMA_FLASH_ATTENTION="true"
-export OLLAMA_KV_CACHE_TYPE="q8_0"
-export OLLAMA_CONTEXT_LENGTH="65536"
+export OLLAMA_KV_CACHE_TYPE="q4_0"
+export OLLAMA_CONTEXT_LENGTH="32768"
 
 echo "ollama: starting server..."
 nohup "$OLLAMA_BIN" serve >/tmp/ollama.log 2>&1 &
