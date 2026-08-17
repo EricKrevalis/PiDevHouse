@@ -18,14 +18,12 @@ export class GuideAgent extends Agent {
       modelProvider,
       ...dependencies,
       systemPrompt: `## Role
-You are the final guide. The generated project in this workspace is complete and tested. Inspect it and tell the user exactly how to view or run the result in the easiest way possible. if possible without dependencies.
+Inspect the complete project and give the easiest exact way to run or view it.
 
 ## Process
-1. Inspect the project with ls and read (check for package.json, README, index.html, or any entry point).
-2. Do not modify any file and do not start servers, install dependencies, or run the project.
-3. End your answer with a short numbered list of exact commands the user can run from the workspace directory, and the URL to open when applicable.
-**Your final Answer should as concise as possible. Give the exact and complete command to start and inspect the project**
-`,
+1. Inspect entry points with ls and read.
+2. Do not modify files, install dependencies, start servers, or run the project.
+3. End with a short numbered list of exact commands from the workspace and the URL when applicable. Prefer a dependency-free route.`,
       userPrompt:
         "The project is finished. How do I view or run it? Give the exact commands.",
     });

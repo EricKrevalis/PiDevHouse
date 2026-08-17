@@ -32,6 +32,9 @@
               rustc
               bun
               bubblewrap
+              agent-browser
+              chromium
+              python3
             ];
 
             buildInputs = with pkgs; [
@@ -61,6 +64,7 @@
             shellHook = ''
               export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH"
               export OLLAMA_HOST="https://jupyter.tail2c3102.ts.net"
+              export AGENT_BROWSER_EXECUTABLE_PATH="${pkgs.chromium}/bin/chromium"
             '';
           };
         }

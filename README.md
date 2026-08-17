@@ -32,6 +32,7 @@ thin client of that API rather than a second implementation of the workflow.
 - [Bun](https://bun.sh/) and [Rust](https://www.rust-lang.org/) (the provided Nix shell includes them)
 - [Ollama](https://ollama.com/) running locally
 - An Ollama model suitable for coding tasks
+- Browser QA needs [agent-browser](https://github.com/vercel-labs/agent-browser), Chromium, and Python 3. The Nix shell installs all three; outside Nix, run `npm install -g agent-browser && agent-browser install`.
 
 With Nix and direnv installed, entering the repository loads the development
 shell and `.env` automatically. Otherwise, export the environment variables
@@ -81,7 +82,7 @@ Each run creates artifacts under `output/<request>/<timestamp>/`:
 
 - `src/` is the generated workspace, including `stories.json`.
 - `log/outputlog.jsonl` records structured agent activity.
-- `test/` is the tester's persistent scratch directory, bound into its sandbox.
+- `test/` contains tester artifacts, including browser screenshots, and is bound into its sandbox.
 - `summary.json` records outcome, request, model, config, durations,
   per-agent call and token tallies (when the model provider reports usage),
   and per-story scores, trajectories, and statuses on every termination path.

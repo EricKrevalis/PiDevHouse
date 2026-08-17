@@ -85,26 +85,22 @@ export class OrchestratorAgent extends Agent {
       ...dependencies,
       timeoutMinutes: config.timeoutMinutes,
       systemPrompt: `## Role
-You are the orchestration agent. You decide which agent runs next on which story. Drive every story in stories.json to the terminal status "${terminal}".
+Drive every story in stories.json to terminal status "${terminal}" by selecting its next agent.
 
 ## Current stories
 ${available}
 
-## Story lifecycle
-- "todo" → run the developer agent to implement it (status becomes "in_progress" then "implemented").
-${config.reviewerEnabled ? `- "implemented" → run the reviewer agent; it sets "approved" when reviewResult.score >= ${config.minScore}.` : "- The reviewer agent is disabled; skip it."}
-${config.testerEnabled ? `- "approved" (or "implemented" when the reviewer is disabled) → run the tester agent; it sets "tested" when testResult.score >= ${config.minScore}.` : "- The tester agent is disabled; the terminal status is reached after review."}
-- Each story has an iteration budget of ${config.maxIterations}. The run_agent tool reports how many iterations a story has used. When the budget is exhausted at the story's final gate without reaching "${terminal}", the story is marked "blocked" automatically; move on, it cannot be fixed by more iterations.
+## Lifecycle
+- "todo" → developer → "implemented"
+${config.reviewerEnabled ? `- "implemented" → reviewer → "approved" at score ${config.minScore}+` : "- Reviewer disabled."}
+${config.testerEnabled ? `- "approved" (or "implemented" without review) → tester → "tested" at score ${config.minScore}+` : "- Tester disabled."}
+- Each story has ${config.maxIterations} attempts; an exhausted final gate is blocked automatically.
 
 ## Process
-    1. Read ${resolve(workspace.workspaceDir, STORIES_PATH)} and inspect every story's status, scores, and blockedBy dependencies.
-2. Only work on a story that is "todo" (or already in progress) and whose blockedBy stories all have status "${terminal}".
-3. Call run_agent for exactly one agent on exactly one story at a time: the agent that should run next given the story's current status. Never skip a step: developer first, then reviewer (if enabled), then tester (if enabled).
-4. After each run_agent, re-read stories.json and check the updated status and scores before choosing the next agent. Do not run an agent on a story whose current status does not match its expected input state.
-5. Never run_agent for a story that already has status "${terminal}" or "blocked", and never run one whose dependencies are not all "${terminal}".
-
-## Stop
-Finish with a one-line summary: how many stories reached "${terminal}", and which are blocked or unresolved.`,
+1. Read ${resolve(workspace.workspaceDir, STORIES_PATH)} and select an unfinished story whose blockers are "${terminal}".
+2. Call run_agent exactly once for its expected next agent. Never skip developer, review when enabled, or testing when enabled.
+3. Re-read stories.json after every call. Never run terminal, blocked, dependency-blocked, or wrong-state stories.
+4. Finish with one line: completed, blocked, and unresolved stories.`,
       userPrompt: `Read stories.json and orchestrate the remaining stories to completion.`,
     });
     this.config = config;

@@ -7,7 +7,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentEventBridge } from "../../service/agentEventBridge.ts";
 import type { SummaryCollector } from "../../service/summaryCollector.ts";
-import { createCustomTools, toolName, ToolRef } from "../../tools/registry.ts";
+import {
+  createCustomTools,
+  toolName,
+  ToolRef,
+  TOOLS,
+} from "../../tools/registry.ts";
 import type { StoryStore } from "../../tools/story/stories.ts";
 import { scopeToolCalls } from "../../tools/scope.ts";
 import type { MessagePublisher } from "../messagePublisher.model.ts";
@@ -72,12 +77,22 @@ export abstract class Agent {
     return this.workspace.workspaceDir;
   }
 
+  protected get bashWriteDir(): string | undefined {
+    return this.tools.some((ref) => {
+      const name = toolName(ref);
+      return name === TOOLS.write || name === TOOLS.edit;
+    })
+      ? this.writeDir
+      : undefined;
+  }
+
   protected buildCustomTools(): ReturnType<typeof createCustomTools> {
     return createCustomTools(
       this.tools,
       this.workspace,
       this.storyStore,
       this.writeDir,
+      this.bashWriteDir,
     );
   }
 

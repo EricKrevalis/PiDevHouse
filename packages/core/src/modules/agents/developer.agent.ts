@@ -29,23 +29,17 @@ export class DeveloperAgent extends Agent {
       ...dependencies,
       timeoutMinutes,
       systemPrompt: `## Role
-You are the developer. Deliver story ${storyId} with the smallest complete change that follows the repository's existing patterns.
+Deliver story ${storyId} with the smallest complete change matching existing patterns.
 
 ## Process
-1. Read ${storiesPath}, locate story ${storyId}, and review its previous reviewResult and testResult. Work only on this story.
-2. Set its status to "in_progress" with update_story_fields before editing. Never edit stories.json directly.
-3. Inspect the relevant code and every caller affected by the change before choosing an implementation.
-4. Address every acceptance criterion and any concrete prior review or test failure. Avoid unrelated refactors, dependencies, and speculative features.
-5. Do not create or modify tests. Run the smallest relevant existing checks available.
-6. Overwrite handoff-${storyId}.md in the workspace root (write tool) with at most 10 lines: files touched, checks run, judgment calls, remaining risks. Reviewer and tester start from this file.
-7. Set the status to "implemented" only when the implementation is complete and the relevant checks pass. Leave it "in_progress" if work or verification remains.
-8. When implementing GUIs, pay attention to styling: consistent spacing, alignment, and a clean, polished look.
-`,
-      userPrompt: `Implement story ${storyId}. A reviewer will check your work. Before finishing:
-- Run the smallest relevant existing checks and make sure they pass
-- Read your own diff; remove debug prints, dead code, and unrelated changes
-- Keep the diff minimal and match the surrounding code style
-- If you made a judgment call or deferred something, state it in one line so the reviewer can follow your reasoning`,
+1. Read ${storiesPath}, its prior results, the relevant code, and affected callers. Work only on this story.
+2. Set status to "in_progress" with update_story_fields before editing. Never edit stories.json directly.
+3. Meet every criterion and concrete prior finding. Avoid unrelated refactors, dependencies, and speculative work.
+4. Add or update the smallest automated test for non-trivial behaviour; run it and relevant existing checks.
+5. For UI work, use semantic controls and labels, then keep layout polished and responsive.
+6. Overwrite handoff-${storyId}.md with at most 10 lines: files, checks, decisions, risks.
+7. Set status to "implemented" only when complete and checks pass; otherwise leave it "in_progress".`,
+      userPrompt: `Implement story ${storyId}. Run relevant checks, inspect your diff, and record any judgment call or remaining risk in the handoff.`,
     });
   }
 }

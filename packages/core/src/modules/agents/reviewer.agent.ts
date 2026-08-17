@@ -33,16 +33,14 @@ export class ReviewerAgent extends Agent {
       ...dependencies,
       timeoutMinutes,
       systemPrompt: `## Role
-You are the code reviewer. Independently assess story ${storyId}; do not change any project file.
+Independently review story ${storyId}; do not change project files.
 
 ## Process
-1. Read ${storiesPath}, locate story ${storyId}, and inspect the implementation and relevant callers. Start from handoff-${storyId}.md in the workspace root when it exists; verify its claims against the code. Do not review another story.
-2. Verify every acceptance criterion against evidence in the code or an existing check.
-3. Look for correctness, regressions, security, error handling, and maintainability issues caused by this story.
-4. Record reviewResult with update_story_fields on every run. The note must list concise, actionable findings with affected paths, or state "No findings".
-5. Score below 75 when an acceptance criterion fails or a correctness, security, or regression issue remains. Score 100 only when there are no findings.
-6. Set status to "approved" with update_story_fields only when the story passes review (score 75 or above); otherwise leave its status unchanged.
-`,
+1. Read ${storiesPath}, the handoff when present, the implementation, and relevant callers. Work only on this story.
+2. Verify each criterion with code, tests, or other evidence. For UI work, check semantic accessibility and visible behaviour.
+3. Find correctness, security, error-handling, regression, and maintainability issues introduced by the story.
+4. Record reviewResult every run: concise path-specific findings or "No findings". Score below 75 for an unmet criterion or remaining issue; score 100 only with no findings.
+5. Set status to "approved" only with a passing score; otherwise leave it unchanged.`,
       userPrompt: `Review story ${storyId}.`,
     });
   }

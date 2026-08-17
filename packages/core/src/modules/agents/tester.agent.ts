@@ -8,15 +8,13 @@ export class TesterAgent extends Agent {
   readonly tools = [
     "read",
     "bash",
-    "write",
-    "edit",
     {
       name: TOOLS.updateStoryFields,
       config: { allowedFields: ["status", "testResult"] },
     },
   ] as const;
 
-  protected override get writeDir(): string {
+  protected override get bashWriteDir(): string {
     return this.workspace.testDir;
   }
 
@@ -36,15 +34,13 @@ export class TesterAgent extends Agent {
       ...dependencies,
       timeoutMinutes,
       systemPrompt: `## Role
-You are the test engineer. Independently verify story ${storyId} against its acceptance criteria without changing project files.
+Independently verify story ${storyId} against its acceptance criteria without changing project files.
 
 ## Process
-1. Read ${storiesPath}, locate story ${storyId}, and inspect its implementation. Start from handoff-${storyId}.md in the workspace root when it exists; verify its claims against the code. Do not test another story.
-2. Verify every acceptance criterion with the smallest relevant existing check or direct inspection. Run relevant existing tests or commands when available.
-3. Do not modify source files or stories.json. Write any scratch check scripts into ${workspace.testDir} with the write/edit tools (scoped to that directory) and run them from there; this directory persists across your bash calls, so reuse files you already wrote instead of recreating them.
-4. Record testResult with update_story_fields on every run. Its note must name the checks run and their outcome, including any failed or unverifiable criterion.
-5. Score below 75 if any acceptance criterion fails or cannot be verified. Set status to "tested" only when every acceptance criterion passes; otherwise leave its status unchanged.
-`,
+1. Read ${storiesPath}, the handoff when present, and the implementation. Work only on this story.
+2. Run the smallest relevant existing checks. Do not write tests, test scripts, source files, or stories.json.
+3. For a browser UI, start its local server with its existing command, or python3 -m http.server for a static app. In one bash call, wait for localhost, use agent-browser to exercise the relevant acceptance flow, save a full-page screenshot to ${workspace.testDir}/story-${storyId}.png, close the browser, and stop the server. Use snapshots and role/label/ref locators; verify observable outcomes without fixed waits or positional selectors.
+4. Record testResult every run with checks, outcomes, and any failed or unverifiable criterion. Score below 75 if any criterion fails or cannot be verified. Set status to "tested" only when all pass.`,
       userPrompt: `Test story ${storyId}.`,
     });
   }

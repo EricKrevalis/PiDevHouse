@@ -44,12 +44,12 @@ export function createCustomTools(
   workspace: Workspace,
   storyStore: StoryStore,
   writeDir = workspace.workspaceDir,
-): ToolDefinition[] {
-  const writableDir = refs.some(
+  bashWriteDir = refs.some(
     (ref) => toolName(ref) === TOOLS.write || toolName(ref) === TOOLS.edit,
   )
     ? writeDir
-    : undefined;
+    : undefined,
+): ToolDefinition[] {
   const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
 
   return refs.flatMap((ref) => {
@@ -57,11 +57,7 @@ export function createCustomTools(
       case TOOLS.bash:
         return [
           defineTool(
-            createSandboxedBashTool(
-              workspace,
-              writableDir,
-              [storiesPath],
-            ),
+            createSandboxedBashTool(workspace, bashWriteDir, [storiesPath]),
           ),
         ];
       case TOOLS.write:
