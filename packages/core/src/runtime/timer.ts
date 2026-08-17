@@ -18,7 +18,7 @@ export class Timer {
         seconds: Math.floor(this.elapsedMs() / 1000),
         timestamp: new Date().toISOString(),
       });
-    }, 10_000);
+    }, 1_000);
   }
 
   stop(): void {

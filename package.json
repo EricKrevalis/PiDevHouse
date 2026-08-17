@@ -8,10 +8,11 @@
     "build": "turbo run build",
     "check": "turbo run check",
     "test": "turbo run test --filter=@pidev/core",
-    "core": "bun packages/core/src/main.ts",
+    "core": "bun --cwd packages/core src/main.ts",
     "desktop:dev": "bun run --filter @pidev/desktop tauri:dev",
     "desktop:build": "bun run --filter @pidev/desktop tauri:build",
     "report": "bun scripts/report.ts",
+    "failures": "bun scripts/report.ts --failures",
     "experiment": "bun scripts/experiment.ts"
   },
   "devDependencies": {

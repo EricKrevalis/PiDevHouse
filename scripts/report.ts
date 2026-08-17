@@ -1,5 +1,5 @@
 import { readFile, readdir, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Summary } from "../packages/core/src/modules/model/summary.model.ts";
 
 const OUTPUT_ROOT = resolve(import.meta.dirname ?? ".", "../output");
@@ -7,6 +7,14 @@ const OUTPUT_ROOT = resolve(import.meta.dirname ?? ".", "../output");
 interface Run {
   name: string;
   summary: Summary;
+}
+
+interface Failure {
+  name: string;
+  outcome: string;
+  reasons: string;
+  unresolvedStories: string;
+  error: string;
 }
 
 function formatDuration(durationSeconds: number): string {
@@ -44,30 +52,99 @@ function markdownTable(headers: string[], rows: string[][]): string {
   ].join("\n");
 }
 
+async function runDirectories(
+  root: string,
+  runName = "",
+): Promise<string[]> {
+  const entries = await readdir(resolve(root, runName), {
+    withFileTypes: true,
+  });
+  const names = new Set(entries.map((entry) => entry.name));
+  if (
+    names.has("summary.json") ||
+    (names.has("src") && names.has("log") && names.has("test"))
+  ) {
+    return [runName];
+  }
+
+  const runs: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    runs.push(...(await runDirectories(root, join(runName, entry.name))));
+  }
+  return runs;
+}
+
+function terminalStatus(summary: Summary): string {
+  if (summary.config.testerEnabled === true) return "tested";
+  if (summary.config.reviewerEnabled === true) return "approved";
+  return "implemented";
+}
+
+function failure(summary: Summary, name: string): Failure | undefined {
+  const unresolvedStories = summary.stories
+    .filter((story) => story.status !== terminalStatus(summary))
+    .map((story) => `#${story.id} (${story.status})`);
+  const reasons = [
+    ...(summary.outcome === "completed" ? [] : [summary.outcome]),
+    ...(unresolvedStories.length === 0 ? [] : ["unresolved stories"]),
+  ];
+  if (reasons.length === 0) return;
+  return {
+    name,
+    outcome: summary.outcome,
+    reasons: reasons.join(", "),
+    unresolvedStories: unresolvedStories.join(", ") || "-",
+    error: summary.error ?? "-",
+  };
+}
+
 async function main(): Promise<void> {
   const csvPath = process.argv.find((arg) => arg.startsWith("--csv="))?.slice(6);
+  const failuresOnly = process.argv.includes("--failures");
   const runs: Run[] = [];
+  const failures: Failure[] = [];
 
-  for (const group of await readdir(OUTPUT_ROOT, { withFileTypes: true })) {
-    if (!group.isDirectory()) continue;
-    for (const entry of await readdir(resolve(OUTPUT_ROOT, group.name), {
-      withFileTypes: true,
-    })) {
-      if (!entry.isDirectory()) continue;
-      const runName = `${group.name}/${entry.name}`;
-      try {
-        const summary = JSON.parse(
-          await readFile(
-            resolve(OUTPUT_ROOT, group.name, entry.name, "summary.json"),
-            "utf8",
-          ),
-        ) as Summary;
-        runs.push({ name: runName, summary });
-      } catch {
+  for (const runName of await runDirectories(OUTPUT_ROOT)) {
+    try {
+      const summary = JSON.parse(
+        await readFile(resolve(OUTPUT_ROOT, runName, "summary.json"), "utf8"),
+      ) as Summary;
+      runs.push({ name: runName, summary });
+      const runFailure = failure(summary, runName);
+      if (runFailure) failures.push(runFailure);
+    } catch (error) {
+      if (failuresOnly) {
+        failures.push({
+          name: runName,
+          outcome: "no_summary",
+          reasons: "missing or unreadable summary",
+          unresolvedStories: "-",
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }
   runs.sort((a, b) => a.name.localeCompare(b.name));
+  failures.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (failuresOnly) {
+    console.log(`# Failures (${failures.length})`);
+    if (failures.length === 0) return;
+    console.log(
+      markdownTable(
+        ["Run", "Outcome", "Reasons", "Unresolved stories", "Error"],
+        failures.map((item) => [
+          item.name,
+          item.outcome,
+          item.reasons,
+          item.unresolvedStories,
+          item.error,
+        ]),
+      ),
+    );
+    return;
+  }
 
   const runRows = runs.map(({ name, summary }) => {
     const totals = agentTotals(summary);

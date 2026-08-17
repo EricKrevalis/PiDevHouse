@@ -1,7 +1,7 @@
 import { createApplicationContext } from "./application.ts";
 import { ApiServer } from "./api/server.ts";
 import { Config } from "./modules/model/config.model.ts";
-import { TerminalView } from "./modules/ui/terminalView.ts";
+import { TerminalView } from "./modules/ui/terminalView.tsx";
 
 const envPath = new URL("../../../.env", import.meta.url).pathname;
 try {
@@ -30,10 +30,17 @@ if (args.length === 0) {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 } else {
-  const terminalView = new TerminalView(application.eventBus);
+  const terminalView = await TerminalView.create({
+    eventBus: application.eventBus,
+  });
+  const cancel = (): void => terminalView.cancel();
+  process.once("SIGINT", cancel);
+  process.once("SIGTERM", cancel);
   try {
     process.exitCode = (await application.workflowService.run(
       Config.fromArgs(args),
+      undefined,
+      terminalView.signal,
     ))
       ? 1
       : 0;
@@ -41,6 +48,8 @@ if (args.length === 0) {
     console.error(error);
     process.exitCode = 1;
   } finally {
-    terminalView.close();
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
+    await terminalView.close();
   }
 }

@@ -60,6 +60,7 @@
 
             shellHook = ''
               export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH"
+              export OLLAMA_HOST="https://jupyter.tail2c3102.ts.net"
             '';
           };
         }

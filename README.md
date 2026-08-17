@@ -91,6 +91,7 @@ Each run creates artifacts under `output/<request>/<timestamp>/`:
 ```sh
 bun run report                     # Markdown tables for all runs
 bun run report --csv=output/summary.csv
+bun run failures                   # Failed, incomplete, timed-out, and missing-summary runs
 ```
 
 ```sh
@@ -112,6 +113,25 @@ it runs the default request 3 times. A spec looks like:
 
 Each run lands in its own `output/<request>/<timestamp>/` directory; results
 are aggregated into `output/experiment-<timestamp>.json`.
+
+Each `experiment` batch is placed in the next available
+`output/experiments-N/` directory. Pass `--output-subdir=name` only to
+`experiment` when a batch needs a specific name; `report` and `failures` scan
+all batches automatically.
+
+For the paper's failure-modes and robustness experiment, use the prepared
+matrix:
+
+```sh
+bun run experiment notes/failure-modes-experiment.json
+bun run report
+bun run report --csv=output/failure-modes-summary.csv
+```
+
+The matrix compares the baseline, reviewer ablation, one-iteration recovery
+budget, and a five-minute per-agent timeout. Retain every run, including
+`incomplete`, `timeout`, and `error` outcomes; classify them from `summary.json`,
+`src/stories.json`, and `log/outputlog.jsonl` before making claims in the paper.
 
 ## Development
 

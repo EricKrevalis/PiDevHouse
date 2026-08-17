@@ -1,0 +1,17 @@
+{
+  "repeat": 3,
+  "variants": [
+    {
+      "request": "Build an interactive web todo app",
+      "flags": {
+        "max-iterations": 4,
+        "min-score": 75,
+        "no-reviewer": true,
+        "no-tester": true,
+        "timeout-minutes": 0,
+        "concurrency": 1,
+        "orchestrator": true
+      }
+    }
+  ]
+}

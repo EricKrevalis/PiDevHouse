@@ -21,9 +21,20 @@ import { StoryStore } from "../modules/tools/story/stories.ts";
 import type { StoryExecutor } from "../modules/model/storyExecutor.model.ts";
 import { Timer } from "./timer.ts";
 
-const OUTPUT_ROOT = fileURLToPath(
+const DEFAULT_OUTPUT_ROOT = fileURLToPath(
   new URL("../../../../output", import.meta.url),
 );
+
+function outputRoot(): string {
+  const subdir = process.env.PIDEV_OUTPUT_SUBDIR;
+  if (subdir === undefined || subdir === "") return DEFAULT_OUTPUT_ROOT;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(subdir)) {
+    throw new Error("PIDEV_OUTPUT_SUBDIR must be a single directory name");
+  }
+  return resolve(DEFAULT_OUTPUT_ROOT, subdir);
+}
+
+const OUTPUT_ROOT = outputRoot();
 
 const now = (): string => new Date().toISOString();
 

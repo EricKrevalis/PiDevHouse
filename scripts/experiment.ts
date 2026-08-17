@@ -1,26 +1,73 @@
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import type { Summary } from "../packages/core/src/modules/model/summary.model.ts";
 
-const MAIN_PATH = resolve(
+const CORE_PATH = resolve(
   import.meta.dirname ?? ".",
-  "../packages/core/src/main.ts",
+  "../packages/core",
 );
 const OUTPUT_ROOT = resolve(import.meta.dirname ?? ".", "../output");
 const DEFAULT_REQUEST = "Build an interactive web todo app.";
 
-async function latestRunDir(): Promise<string | null> {
+function outputSubdir(): string | undefined {
+  const flag = process.argv.find((arg) =>
+    arg.startsWith("--output-subdir"),
+  );
+  if (flag === undefined) return;
+  if (!flag.startsWith("--output-subdir=")) {
+    throw new Error("Use --output-subdir=<name>");
+  }
+  const subdir = flag.slice("--output-subdir=".length);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(subdir)) {
+    throw new Error("--output-subdir must be a single directory name");
+  }
+  return subdir;
+}
+
+async function experimentOutput(): Promise<{
+  root: string;
+  subdir: string;
+}> {
+  const requestedSubdir = outputSubdir();
+  if (requestedSubdir !== undefined) {
+    const root = resolve(OUTPUT_ROOT, requestedSubdir);
+    await mkdir(root, { recursive: true });
+    return { root, subdir: requestedSubdir };
+  }
+
+  await mkdir(OUTPUT_ROOT, { recursive: true });
+  for (let number = 1; ; number++) {
+    const subdir = `experiments-${number}`;
+    const root = resolve(OUTPUT_ROOT, subdir);
+    try {
+      await mkdir(root);
+      return { root, subdir };
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "EEXIST"
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function latestRunDir(outputRoot: string): Promise<string | null> {
   let newest: string | null = null;
   let newestMtime = 0;
-  for (const group of await readdir(OUTPUT_ROOT, { withFileTypes: true })) {
+  for (const group of await readdir(outputRoot, { withFileTypes: true })) {
     if (!group.isDirectory()) continue;
-    for (const entry of await readdir(resolve(OUTPUT_ROOT, group.name), {
+    for (const entry of await readdir(resolve(outputRoot, group.name), {
       withFileTypes: true,
     })) {
       if (!entry.isDirectory()) continue;
       const mtime = (await stat(
-        resolve(OUTPUT_ROOT, group.name, entry.name),
+        resolve(outputRoot, group.name, entry.name),
       )).mtime;
       if (mtime && mtime.getTime() > newestMtime) {
         newestMtime = mtime.getTime();
@@ -66,7 +113,10 @@ function buildFlags(
 }
 
 async function main(): Promise<void> {
-  const specPath = process.argv[2];
+  const { root: outputRoot, subdir } = await experimentOutput();
+  const specPath = process.argv
+    .slice(2)
+    .find((arg) => !arg.startsWith("--"));
   const spec: Spec = specPath
     ? (JSON.parse(await readFile(specPath, "utf8")) as Spec)
     : {};
@@ -77,6 +127,9 @@ async function main(): Promise<void> {
   }));
 
   const results: Result[] = [];
+  const environment = { ...process.env };
+  if (subdir) environment.PIDEV_OUTPUT_SUBDIR = subdir;
+  else delete environment.PIDEV_OUTPUT_SUBDIR;
 
   for (const [variantIndex, variant] of variants.entries()) {
     for (let runIndex = 1; runIndex <= repeat; runIndex++) {
@@ -88,18 +141,24 @@ async function main(): Promise<void> {
       const status = await new Promise<number>((resolveExit) => {
         const child = spawn(
           "bun",
-          [MAIN_PATH, ...variant.flags, variant.request],
-          { stdio: "inherit" },
+          [
+            "--cwd",
+            CORE_PATH,
+            "src/main.ts",
+            ...variant.flags,
+            variant.request,
+          ],
+          { stdio: "inherit", env: environment },
         );
         child.on("exit", (code) => resolveExit(code ?? 1));
       });
 
-      const runName = (await latestRunDir()) ?? "";
+      const runName = (await latestRunDir(outputRoot)) ?? "";
       let summary: Summary | null = null;
       try {
         summary = JSON.parse(
           await readFile(
-            resolve(OUTPUT_ROOT, runName, "summary.json"),
+            resolve(outputRoot, runName, "summary.json"),
             "utf8",
           ),
         ) as Summary;
@@ -115,10 +174,10 @@ async function main(): Promise<void> {
     }
   }
 
-  const reportPath = resolve(OUTPUT_ROOT, `experiment-${Date.now()}.json`);
+  const reportPath = resolve(outputRoot, `experiment-${Date.now()}.json`);
   await writeFile(
     reportPath,
-    `${JSON.stringify({ spec: { repeat, variants }, results }, null, 2)}\n`,
+    `${JSON.stringify({ outputSubdir: subdir, spec: { repeat, variants }, results }, null, 2)}\n`,
   );
 
   console.log("\n# Results");
