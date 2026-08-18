@@ -7,77 +7,32 @@ export type RunStatus =
   | "failed"
   | "cancelled";
 
+type AgentMessage = {
+  runId: string;
+  agent: string;
+  storyId?: number;
+  iteration?: number;
+  timestamp: string;
+};
+
 export type Message =
-  | {
-      type: "agent_start";
-      runId: string;
-      agent: string;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
-  | {
-      type: "agent_end";
-      runId: string;
-      agent: string;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
-  | {
-      type: "text_delta";
-      runId: string;
-      agent: string;
-      delta: string;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
-  | {
-      type: "text_end";
-      runId: string;
-      agent: string;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
-  | {
-      type: "thinking_start";
-      runId: string;
-      agent: string;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
-  | {
-      type: "thinking_end";
-      runId: string;
-      agent: string;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
-  | {
+  | (AgentMessage & { type: "agent_start" })
+  | (AgentMessage & { type: "agent_end" })
+  | (AgentMessage & { type: "text_delta"; delta: string })
+  | (AgentMessage & { type: "text_end" })
+  | (AgentMessage & { type: "thinking_start" })
+  | (AgentMessage & { type: "thinking_end" })
+  | (AgentMessage & {
       type: "tool_start";
-      runId: string;
-      agent: string;
       tool: string;
       args?: Record<string, unknown>;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
-  | {
+    })
+  | (AgentMessage & {
       type: "tool_end";
-      runId: string;
-      agent: string;
       tool: string;
       isError: boolean;
       result?: string;
-      storyId?: number;
-      iteration?: number;
-      timestamp: string;
-    }
+    })
   | {
       type: "story_score";
       runId: string;

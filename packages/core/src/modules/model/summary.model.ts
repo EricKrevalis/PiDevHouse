@@ -31,6 +31,5 @@ export interface Summary {
   config: Record<string, string | number | boolean>;
   agents: Record<string, AgentUsage>;
   stories: StorySummary[];
-  guide?: string;
   error?: string;
 }

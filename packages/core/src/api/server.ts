@@ -5,7 +5,6 @@ import {
   EventBus,
   type MessageSubscriber,
 } from "../modules/service/eventBus.service.ts";
-import { WorkflowService } from "../runtime/workflow.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",

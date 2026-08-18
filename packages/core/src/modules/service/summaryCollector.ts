@@ -17,21 +17,11 @@ interface StoryTrack {
 interface RunState {
   agents: Map<string, AgentUsage>;
   tracks: Map<number, StoryTrack>;
-  guide?: string;
 }
 
-type RunMetadata = Omit<Summary, "agents" | "stories" | "guide"> & {
+type RunMetadata = Omit<Summary, "agents" | "stories"> & {
   stories: Story[];
 };
-
-function messageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return (content as Array<{ type?: string; text?: unknown }>)
-    .filter((part) => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text as string)
-    .join("\n");
-}
 
 export class SummaryCollector {
   private readonly state: RunState = { agents: new Map(), tracks: new Map() };
@@ -64,11 +54,6 @@ export class SummaryCollector {
       usage.outputTokens += event.message.usage.output;
       usage.reasoningTokens += event.message.usage.reasoning ?? 0;
       state.agents.set(agent.name, usage);
-
-      if (agent.name === "guide") {
-        const text = messageText(event.message.content);
-        if (text !== "") state.guide = text;
-      }
     }
 
     if (storyId === undefined) return;
@@ -107,7 +92,7 @@ export class SummaryCollector {
   private collect(
     state: RunState,
     stories: Story[],
-  ): Pick<Summary, "agents" | "stories" | "guide"> {
+  ): Pick<Summary, "agents" | "stories"> {
     return {
       agents: Object.fromEntries(state.agents),
       stories: stories.map((story) => ({
@@ -122,7 +107,6 @@ export class SummaryCollector {
           testTrajectory: [],
         }),
       })),
-      guide: state.guide,
     };
   }
 }
