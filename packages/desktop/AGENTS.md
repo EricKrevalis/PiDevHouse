@@ -1,2 +1,0 @@
-- never touch shadcn components source files directly.
-- always use the official clis where possible

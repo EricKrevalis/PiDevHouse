@@ -5,8 +5,7 @@
       "request": "Build a dependency-free single-page todo app in one index.html file. Users can add a non-empty task, mark a task complete, delete a task, and filter tasks by all, active, or completed. It must work when opened directly in a browser, with no build step, server, or network access.",
       "flags": {
         "max-iterations": 4,
-        "min-score": 75,
-        "concurrency": 1
+        "min-score": 75
       }
     },
     {
@@ -14,7 +13,6 @@
       "flags": {
         "max-iterations": 4,
         "min-score": 75,
-        "concurrency": 1,
         "no-tester": true
       }
     },
@@ -23,7 +21,6 @@
       "flags": {
         "max-iterations": 4,
         "min-score": 75,
-        "concurrency": 1,
         "timeout-minutes": 5
       }
     }

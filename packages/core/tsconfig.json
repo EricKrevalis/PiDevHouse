@@ -10,7 +10,7 @@
     "strict": true,
     "skipLibCheck": true,
     "lib": ["esnext", "dom"],
-    "types": ["bun", "node"]
+    "types": ["bun"]
   },
   "include": ["src"]
 }

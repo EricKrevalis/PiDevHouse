@@ -20,16 +20,11 @@ venv/
 
 # Node
 node_modules/
-.turbo/
 dist/
-/desktop/
 
-# Rust / Tauri
+# Rust
 target/
-packages/desktop/src-tauri/target/
 
 # Generated runs
 /output/*
 !/output/.gitkeep
-/packages/agent/output/
-notes/

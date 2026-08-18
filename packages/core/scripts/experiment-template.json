@@ -8,9 +8,7 @@
         "min-score": 75,
         "no-reviewer": true,
         "no-tester": true,
-        "timeout-minutes": 0,
-        "concurrency": 1,
-        "orchestrator": true
+        "timeout-minutes": 0
       }
     }
   ]

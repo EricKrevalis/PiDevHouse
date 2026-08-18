@@ -27,8 +27,6 @@ export class TerminalView implements MessageSubscriber {
   private readonly state = new TerminalState();
   private renderer?: CliRenderer;
   private storyCount?: number;
-  private gpuResidencyChecked = false;
-  private thinkingId = 0;
   // ponytail: one transcript assumes one active stream; add per-agent streams for parallel output.
   private isStreamBeginning = true;
   private streamNeedsNewline = false;
@@ -75,6 +73,10 @@ export class TerminalView implements MessageSubscriber {
     this.state.cancel();
   }
 
+  write(content: string, color?: string): void {
+    this.state.write(content, color);
+  }
+
   async close(): Promise<void> {
     this.stopThinking();
     this.options.eventBus.unsubscribe(this);
@@ -102,9 +104,7 @@ export class TerminalView implements MessageSubscriber {
         this.streamNeedsNewline = !message.delta.endsWith("\n");
         break;
       case "thinking_start":
-        const thinkingId = ++this.thinkingId;
         this.state.startThinking(this.label(message));
-        void this.warnIfModelRunsOnCpu(thinkingId);
         break;
       case "thinking_end":
         this.stopThinking();
@@ -143,39 +143,6 @@ export class TerminalView implements MessageSubscriber {
       case "elapsed":
         this.state.setElapsed(message.seconds);
         break;
-    }
-  }
-
-  private async warnIfModelRunsOnCpu(thinkingId: number): Promise<void> {
-    if (this.gpuResidencyChecked) return;
-    this.gpuResidencyChecked = true;
-
-    const modelName = process.env.OLLAMA_MODEL;
-    if (!modelName) return;
-
-    try {
-      const host = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-      const response = await fetch(new URL("/api/ps", host));
-      if (!response.ok) return;
-      const data = await response.json();
-      const model = data.models.find(
-        (item: { name: string; size: number; size_vram: number }) =>
-          item.name === modelName,
-      );
-      if (!model) return;
-      if (this.thinkingId !== thinkingId) return;
-
-      const gpu = Math.round((model.size_vram / model.size) * 100);
-      this.state.write(
-        `\n${
-          gpu >= 100
-            ? `Model: ${modelName} runs fully on GPU.`
-            : `Warning: ${modelName} runs ${100 - gpu}% on CPU / ${gpu}% on GPU. It will be slower until it fits fully in VRAM.`
-        }\n`,
-        gpu >= 100 ? "green" : "yellow",
-      );
-    } catch {
-      // Ollama may be unavailable while the terminal view starts.
     }
   }
 
@@ -260,7 +227,6 @@ export class TerminalView implements MessageSubscriber {
   }
 
   private stopThinking(): void {
-    this.thinkingId++;
     this.state.stopThinking();
   }
 }
