@@ -12,8 +12,6 @@ export interface ConfigInput {
   reviewerEnabled?: boolean;
   testerEnabled?: boolean;
   timeoutMinutes?: number;
-  concurrency?: number;
-  orchestratorEnabled?: boolean;
 }
 
 function flagBool(flags: FlagMap, name: string): boolean {
@@ -33,8 +31,6 @@ export class Config {
     readonly reviewerEnabled: boolean,
     readonly testerEnabled: boolean,
     readonly timeoutMinutes: number,
-    readonly concurrency: number,
-    readonly orchestratorEnabled: boolean,
   ) {}
 
   static from(input: ConfigInput = {}): Config {
@@ -45,10 +41,6 @@ export class Config {
       input.reviewerEnabled ?? true,
       input.testerEnabled ?? true,
       input.timeoutMinutes ?? 0,
-      Number.isFinite(input.concurrency)
-        ? Math.max(1, input.concurrency as number)
-        : 1,
-      input.orchestratorEnabled ?? false,
     );
   }
 
@@ -59,10 +51,8 @@ export class Config {
         "max-iterations": { type: "string" },
         "min-score": { type: "string" },
         "timeout-minutes": { type: "string" },
-        concurrency: { type: "string" },
         "no-reviewer": { type: "boolean" },
         "no-tester": { type: "boolean" },
-        orchestrator: { type: "boolean" },
       },
       allowPositionals: true,
       strict: false,
@@ -75,8 +65,6 @@ export class Config {
       reviewerEnabled: !flagBool(values, "no-reviewer"),
       testerEnabled: !flagBool(values, "no-tester"),
       timeoutMinutes: flagNumber(values, "timeout-minutes", 0),
-      concurrency: flagNumber(values, "concurrency", 1),
-      orchestratorEnabled: flagBool(values, "orchestrator"),
     });
   }
 
@@ -88,8 +76,6 @@ export class Config {
       reviewerEnabled: this.reviewerEnabled,
       testerEnabled: this.testerEnabled,
       timeoutMinutes: this.timeoutMinutes,
-      concurrency: this.concurrency,
-      orchestratorEnabled: this.orchestratorEnabled,
     };
   }
 

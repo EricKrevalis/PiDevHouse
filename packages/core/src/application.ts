@@ -1,7 +1,7 @@
 import { AgentEventBridge } from "./modules/service/agentEventBridge.ts";
 import { EventBus } from "./modules/service/eventBus.service.ts";
 import { OllamaProviderFactory } from "./modules/model/providers/ollamaProvider.model.ts";
-import { StoryRunner } from "./runtime/orchestrator.ts";
+import { StoryRunner } from "./runtime/storyRunner.ts";
 import { DefaultWorkflowAgentFactory } from "./runtime/workflowAgentFactory.ts";
 import { WorkflowService } from "./runtime/workflow.ts";
 

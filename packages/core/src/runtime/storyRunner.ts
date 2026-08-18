@@ -7,13 +7,22 @@ import type { Config } from "../modules/model/config.model.ts";
 import type { MessagePublisher } from "../modules/model/messagePublisher.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
 import type { Story } from "../modules/model/story.model.ts";
-import type { StoryExecutor } from "../modules/model/storyExecutor.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { StoryStore } from "../modules/tools/story/stories.ts";
 
+export function trackPlateau(
+  score: number,
+  minScore: number,
+  state: { best: number; flat: number },
+): { best: number; flat: number; plateau: boolean } {
+  if (score >= minScore) return { ...state, plateau: false };
+  const best = Math.max(state.best, score);
+  const flat = score <= state.best ? state.flat + 1 : 0;
+  return { best, flat, plateau: flat >= 2 };
+}
+
 async function getValidationScore(
-  workspace: Workspace,
   storyStore: StoryStore,
   storyId: number,
   variant: "review" | "test",
@@ -59,7 +68,7 @@ async function runAgent(
   ).run(storyId, iteration, signal);
 }
 
-export class StoryRunner implements StoryExecutor {
+export class StoryRunner {
   constructor(private readonly messagePublisher: MessagePublisher) {}
 
   async run(
@@ -71,6 +80,8 @@ export class StoryRunner implements StoryExecutor {
     dependencies: AgentContext,
     signal?: AbortSignal,
   ): Promise<void> {
+    const reviewPlateau = { best: -Infinity, flat: 0 };
+    const testPlateau = { best: -Infinity, flat: 0 };
     for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
       await runAgent(
         DeveloperAgent,
@@ -96,19 +107,30 @@ export class StoryRunner implements StoryExecutor {
           dependencies,
           signal,
         );
-        if (
-          (await getValidationScore(
-            workspace,
-            dependencies.storyStore,
-            storyId,
-            "review",
-            runId,
-            this.messagePublisher,
-          )) < config.minScore
-        ) {
+        const reviewScore = await getValidationScore(
+          dependencies.storyStore,
+          storyId,
+          "review",
+          runId,
+          this.messagePublisher,
+        );
+        if (reviewScore < config.minScore) {
+          const review = trackPlateau(reviewScore, config.minScore, reviewPlateau);
+          reviewPlateau.best = review.best;
+          reviewPlateau.flat = review.flat;
+          if (review.plateau) {
+            await markBlocked(
+              dependencies.storyStore,
+              storyId,
+              config,
+              runId,
+              this.messagePublisher,
+              `review score plateaued at ${review.best} without reaching ${config.minScore}`,
+            );
+            return;
+          }
           continue;
         }
-        // TODO when not approved and last run also markBlocked
         if (!config.testerEnabled) return;
       }
 
@@ -124,16 +146,29 @@ export class StoryRunner implements StoryExecutor {
           dependencies,
           signal,
         );
-        if (
-          (await getValidationScore(
-            workspace,
+        const testScore = await getValidationScore(
+          dependencies.storyStore,
+          storyId,
+          "test",
+          runId,
+          this.messagePublisher,
+        );
+        if (testScore >= config.minScore) {
+          return;
+        }
+        const test = trackPlateau(testScore, config.minScore, testPlateau);
+        testPlateau.best = test.best;
+        testPlateau.flat = test.flat;
+        if (test.plateau) {
+          await markBlocked(
             dependencies.storyStore,
             storyId,
-            "test",
+            config,
             runId,
             this.messagePublisher,
-          )) >= config.minScore
-        ) {
+            `test score plateaued at ${test.best} without reaching ${config.minScore}` +
+              (config.reviewerEnabled ? " while the review passed" : ""),
+          );
           return;
         }
       }
@@ -155,6 +190,7 @@ async function markBlocked(
   config: Config,
   runId: string,
   messagePublisher: MessagePublisher,
+  reason = "iteration budget exhausted without passing the enabled gates",
 ): Promise<void> {
   const state = await storyStore.read();
   const story = state?.stories.find((item) => item.id === storyId);
@@ -177,7 +213,7 @@ async function markBlocked(
       type: "story_blocked",
       runId,
       storyId,
-      detail: "iteration budget exhausted without passing the enabled gates",
+      detail: reason,
       timestamp: new Date().toISOString(),
     });
   }

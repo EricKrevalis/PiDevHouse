@@ -18,7 +18,7 @@ import { AgentEventBridge } from "../modules/service/agentEventBridge.ts";
 import { SummaryCollector } from "../modules/service/summaryCollector.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { StoryStore } from "../modules/tools/story/stories.ts";
-import type { StoryExecutor } from "../modules/model/storyExecutor.model.ts";
+import type { StoryRunner } from "./storyRunner.ts";
 import { Timer } from "./timer.ts";
 
 const DEFAULT_OUTPUT_ROOT = fileURLToPath(
@@ -33,8 +33,6 @@ function outputRoot(): string {
   }
   return resolve(DEFAULT_OUTPUT_ROOT, subdir);
 }
-
-const OUTPUT_ROOT = outputRoot();
 
 const now = (): string => new Date().toISOString();
 
@@ -59,7 +57,7 @@ async function createRunDirectory(
     .replaceAll(":", "-");
   const slug = slugify(request);
   const runDir = resolve(
-    OUTPUT_ROOT,
+    outputRoot(),
     slug,
     `${timestamp}-${runId.slice(0, 8)}`,
   );
@@ -80,7 +78,7 @@ async function createRunDirectory(
 type WorkflowDependencies = {
   messagePublisher: MessagePublisher;
   agentEventBridge: AgentEventBridge;
-  storyRunner: StoryExecutor;
+  storyRunner: StoryRunner;
   providerFactory: ModelProviderFactory;
   agentFactory: WorkflowAgentFactory;
 };
@@ -108,6 +106,15 @@ export class WorkflowService implements WorkflowRunner {
     timer.start();
     const startedAt = new Date();
 
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    if (config.timeoutMinutes > 0) {
+      deadlineTimer = setTimeout(
+        () =>
+          cancellation.abort(new AgentTimeoutError(config.timeoutMinutes)),
+        config.timeoutMinutes * 60_000,
+      );
+    }
+
     let workspace: Workspace | undefined;
     let modelProvider: ModelProvider | undefined;
     let storyStore: StoryStore | undefined;
@@ -121,10 +128,7 @@ export class WorkflowService implements WorkflowRunner {
     try {
       workflowSignal.throwIfAborted();
       workspace = await createRunDirectory(config.request, runId);
-      modelProvider = await this.dependencies.providerFactory.create(
-        config,
-        workflowSignal,
-      );
+      modelProvider = await this.dependencies.providerFactory.create(workflowSignal);
       workflowSignal.throwIfAborted();
       const storyFile = resolve(workspace.workspaceDir, STORIES_PATH);
       storyStore = new StoryStore(storyFile);
@@ -166,49 +170,6 @@ export class WorkflowService implements WorkflowRunner {
         failed = true;
         finalStatus = "failed";
         finalDetail = "Product Owner failed: stories.json missing or invalid";
-      } else if (config.orchestratorEnabled) {
-        this.dependencies.messagePublisher.publish({
-          type: "run_info",
-          runId,
-          totalStories: initialState.stories.length,
-          timestamp: now(),
-        });
-        await this.dependencies.agentFactory
-          .createOrchestrator({
-            workspace,
-            modelProvider,
-            config,
-            stories: initialState.stories,
-            runId,
-            dependencies: agentDependencies,
-          })
-          .run(undefined, undefined, workflowSignal);
-        const finalState = await storyStore.read();
-        if (finalState === null) {
-          outcome = "incomplete";
-          failed = true;
-          finalStatus = "blocked";
-          finalDetail = "stories.json invalid";
-        } else {
-          stories = finalState.stories;
-          if (
-            stories.every((story) => story.status === config.terminalStatus)
-          ) {
-            await this.dependencies.agentFactory
-              .createGuide({
-                workspace,
-                modelProvider,
-                runId,
-                dependencies: agentDependencies,
-              })
-              .run(undefined, undefined, workflowSignal);
-          } else {
-            outcome = "incomplete";
-            failed = true;
-            finalStatus = "incomplete";
-            finalDetail = "Orchestrator did not deliver every story";
-          }
-        }
       } else {
         this.dependencies.messagePublisher.publish({
           type: "run_info",
@@ -240,36 +201,18 @@ export class WorkflowService implements WorkflowRunner {
             break;
           }
 
-          let index = 0;
-          const workers = Math.min(config.concurrency, ready.length);
-          // Source-file conflicts remain possible when parallel stories edit the same files.
-          const workerResults = await Promise.allSettled(
-            Array.from({ length: workers }, async () => {
-              try {
-                while (index < ready.length) {
-                  workflowSignal.throwIfAborted();
-                  const storyId = ready[index++].id;
-                  await this.dependencies.storyRunner.run(
-                    storyId,
-                    ws,
-                    provider,
-                    config,
-                    runId,
-                    agentDependencies,
-                    workflowSignal,
-                  );
-                }
-              } catch (error) {
-                cancellation.abort(error);
-                throw error;
-              }
-            }),
-          );
-          const failedWorker = workerResults.find(
-            (result): result is PromiseRejectedResult =>
-              result.status === "rejected",
-          );
-          if (failedWorker) throw failedWorker.reason;
+          for (const story of ready) {
+            workflowSignal.throwIfAborted();
+            await this.dependencies.storyRunner.run(
+              story.id,
+              ws,
+              provider,
+              config,
+              runId,
+              agentDependencies,
+              workflowSignal,
+            );
+          }
 
           const freshState = await storyStore.read();
           if (freshState === null) {
@@ -308,6 +251,7 @@ export class WorkflowService implements WorkflowRunner {
       finalStatus = signal?.aborted ? "cancelled" : "failed";
     } finally {
       timer.stop();
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
       try {
         if (workspace && modelProvider) {
           await summaryCollector.writeSummary(resolve(workspace.logDir, ".."), {

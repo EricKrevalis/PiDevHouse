@@ -1,24 +1,23 @@
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { Config } from "../config.model.ts";
 import {
-  ModelProvider,
+  requireEnv,
+  type ModelProvider,
   type ModelProviderFactory,
 } from "./modelProvider.model.ts";
 
-export class OllamaProvider extends ModelProvider {
+export class OllamaProvider implements ModelProvider {
   readonly modelRuntime: ModelRuntime;
   readonly model: Model<Api>;
 
   private constructor(modelRuntime: ModelRuntime, model: Model<Api>) {
-    super();
     this.modelRuntime = modelRuntime;
     this.model = model;
   }
 
-  static override async create(_config: Config): Promise<OllamaProvider> {
+  static async create(): Promise<OllamaProvider> {
     const ollamaHost = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-    const modelId = ModelProvider.requireEnv("OLLAMA_MODEL");
+    const modelId = requireEnv("OLLAMA_MODEL");
 
     const modelRuntime = await ModelRuntime.create({
       modelsPath: null,
@@ -54,9 +53,9 @@ export class OllamaProvider extends ModelProvider {
 }
 
 export class OllamaProviderFactory implements ModelProviderFactory {
-  async create(config: Config, signal?: AbortSignal): Promise<ModelProvider> {
+  async create(signal?: AbortSignal): Promise<ModelProvider> {
     signal?.throwIfAborted();
-    const provider = await OllamaProvider.create(config);
+    const provider = await OllamaProvider.create();
     signal?.throwIfAborted();
     return provider;
   }
