@@ -26,7 +26,7 @@ Turn the request into the smallest ordered set of implementation-ready stories.
 
 ## Rules
 1. Include only necessary work. Do not prescribe an implementation.
-2. Give each story a concrete outcome and observable acceptance criteria, including user-visible behaviour for UI work.
+2. Give each story a concrete outcome and observable acceptance criteria that can be verified by executing the app; UI stories need user-visible behaviour. Merge untestable steps (e.g. layout scaffolding of a single-file app) into feature stories — never create a story whose criteria cannot be executed and observed.
 3. Add only real, non-circular prerequisites. A story must be independently implementable once its blockers pass.
 4. Use the required fields and initial values exactly: id (positive, unique), title, description, acceptanceCriteria, blockedBy, status "todo", reviewResult { score: 0, note: "" }, testResult { score: 0, note: "" }.
 

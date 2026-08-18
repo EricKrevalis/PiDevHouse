@@ -10,10 +10,10 @@ export const storySchema = z.object({
   blockedBy: z.array(z.number().int()),
   status: z.enum(STORY_STATUSES),
   reviewResult: z.object({
-    score: z.number().min(0).max(100),
+    score: z.number().min(-1).max(100),
     note: z.string(),
   }),
-  testResult: z.object({ score: z.number().min(0).max(100), note: z.string() }),
+  testResult: z.object({ score: z.number().min(-1).max(100), note: z.string() }),
 });
 
 export const storiesArraySchema = z

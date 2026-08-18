@@ -4,7 +4,6 @@ import {
   defineTool,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { resolve } from "node:path";
 import type { Workspace } from "../model/workspace.model.ts";
 import { createSandboxedBashTool } from "./bash.ts";
 import type { StoryField } from "./story/updateStoryFields.ts";
@@ -43,27 +42,15 @@ export function createCustomTools(
   refs: readonly ToolRef[],
   workspace: Workspace,
   storyStore: StoryStore,
-  writeDir = workspace.workspaceDir,
-  bashWriteDir = refs.some(
-    (ref) => toolName(ref) === TOOLS.write || toolName(ref) === TOOLS.edit,
-  )
-    ? writeDir
-    : undefined,
 ): ToolDefinition[] {
-  const storiesPath = resolve(workspace.workspaceDir, STORIES_PATH);
-
   return refs.flatMap((ref) => {
     switch (toolName(ref)) {
       case TOOLS.bash:
-        return [
-          defineTool(
-            createSandboxedBashTool(workspace, bashWriteDir, [storiesPath]),
-          ),
-        ];
+        return [defineTool(createSandboxedBashTool(workspace))];
       case TOOLS.write:
-        return [defineTool(createWriteToolDefinition(writeDir))];
+        return [defineTool(createWriteToolDefinition(workspace.workspaceDir))];
       case TOOLS.edit:
-        return [defineTool(createEditToolDefinition(writeDir))];
+        return [defineTool(createEditToolDefinition(workspace.workspaceDir))];
       case TOOLS.writeStories:
         return [createWriteStoriesTool(storyStore)];
       case TOOLS.updateStoryFields:

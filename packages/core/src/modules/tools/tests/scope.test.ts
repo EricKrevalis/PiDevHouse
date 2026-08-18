@@ -34,7 +34,7 @@ function scoped(root: string): { beforeToolCall: Hook | undefined } {
   const agent: { beforeToolCall: Hook | undefined } = {
     beforeToolCall: undefined,
   };
-  scopeToolCalls(agent, root, root);
+  scopeToolCalls(agent, root);
   return agent;
 }
 

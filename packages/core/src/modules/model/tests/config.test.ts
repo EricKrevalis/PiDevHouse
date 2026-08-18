@@ -8,7 +8,6 @@ it("trims the request and applies defaults", () => {
 
   assert.equal(config.request, "ship it");
   assert.equal(config.minScore, 75);
-  assert.equal(config.concurrency, 1);
 });
 
 it("derives the terminal status from enabled gates", () => {

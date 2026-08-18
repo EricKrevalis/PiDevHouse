@@ -57,7 +57,6 @@ async function isScopedPath(root: string, input: string): Promise<boolean> {
 export function scopeToolCalls(
   agent: Pick<Agent, "beforeToolCall">,
   root: string,
-  writeRoot = root,
 ): void {
   const originalHook = agent.beforeToolCall;
   let toolCallCount = 0;
@@ -76,11 +75,10 @@ export function scopeToolCalls(
     if (PATH_TOOLS.has(ctx.toolCall.name)) {
       const args = ctx.args as Record<string, unknown>;
       const path = args.path ?? args.file_path;
-      const scopedRoot = WRITE_TOOLS.has(ctx.toolCall.name) ? writeRoot : root;
-      if (path && !(await isScopedPath(scopedRoot, String(path)))) {
+      if (path && !(await isScopedPath(root, String(path)))) {
         return {
           block: true,
-          reason: `Tool paths must stay inside ${scopedRoot}`,
+          reason: `Tool paths must stay inside ${root}`,
         };
       }
       if (
