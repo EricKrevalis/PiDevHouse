@@ -91,6 +91,29 @@ export class StoryStore {
     return this.mutex.acquire();
   }
 
+  async setStatus(storyId: number, status: Story["status"]): Promise<void> {
+    const release = await this.acquire();
+    try {
+      const state = await this.read();
+      const story = state?.stories.find((item) => item.id === storyId);
+      if (
+        !state ||
+        !story ||
+        story.status === "blocked" ||
+        story.status === status
+      ) {
+        return;
+      }
+      await this.write(
+        state.stories.map((item) =>
+          item.id === storyId ? { ...item, status } : item,
+        ),
+      );
+    } finally {
+      release();
+    }
+  }
+
   async block(
     storyId: number,
     terminalStatus?: Story["status"],

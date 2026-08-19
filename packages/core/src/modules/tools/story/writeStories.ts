@@ -24,7 +24,13 @@ export function createWriteStoriesTool(storyStore: StoryStore): ToolDefinition {
       }
       const release = await storyStore.acquire();
       try {
-        await storyStore.write(check.data);
+        await storyStore.write(
+          check.data.map((story) => ({
+            ...story,
+            reviewResult: { score: 0, note: "" },
+            testResult: { score: 0, note: "" },
+          })),
+        );
       } finally {
         release();
       }

@@ -11,6 +11,7 @@ import {
   validateStories,
   writeStoriesFile,
 } from "../story/stories.ts";
+import { createWriteStoriesTool } from "../story/writeStories.ts";
 
 function story(id: number, blockedBy: number[] = []): Story {
   return {
@@ -79,4 +80,41 @@ it("validateStories rejects duplicate ids and unknown dependency ids", () => {
     typeof validateStories(JSON.stringify({ stories: [story(1)] })),
     "object",
   );
+});
+
+it("write_stories resets review and test scores regardless of submission", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pidev-"));
+  const storyStore = new StoryStore(join(dir, "stories.json"));
+  const tool = createWriteStoriesTool(storyStore);
+  const fabricated = {
+    ...story(1),
+    status: "implemented",
+    reviewResult: { score: 92, note: "pre-filled" },
+    testResult: { score: 95, note: "pre-filled" },
+  };
+
+  await tool.execute(
+    "call",
+    { stories: [fabricated] },
+    undefined,
+    undefined,
+    {} as Parameters<typeof tool.execute>[4],
+  );
+
+  const written = (await storyStore.read())?.stories[0];
+  assert.deepEqual(written?.reviewResult, { score: 0, note: "" });
+  assert.deepEqual(written?.testResult, { score: 0, note: "" });
+});
+
+it("StoryStore.setStatus sets the status idempotently", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pidev-"));
+  const storyStore = new StoryStore(join(dir, "stories.json"));
+  await storyStore.write([story(1)]);
+
+  await storyStore.setStatus(1, "approved");
+  await storyStore.setStatus(1, "approved");
+  await storyStore.setStatus(1, "tested");
+
+  const written = (await storyStore.read())?.stories[0];
+  assert.equal(written?.status, "tested");
 });
