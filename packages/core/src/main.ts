@@ -3,13 +3,6 @@ import { ApiServer } from "./api/server.ts";
 import { Config } from "./modules/model/config.model.ts";
 import { TerminalView } from "./modules/ui/terminalView.tsx";
 
-const envPath = new URL("../../../.env", import.meta.url).pathname;
-try {
-  process.loadEnvFile(envPath);
-} catch {
-  // no .env file
-}
-
 const args = process.argv.slice(2);
 const application = createApplicationContext();
 

@@ -7,7 +7,7 @@
     "dev": "bun run --cwd packages/core dev",
     "check": "bun run --cwd packages/core check",
     "test": "bun run --cwd packages/core test",
-    "core": "bun --cwd packages/core src/main.ts",
-    "experiment": "bun packages/core/scripts/experiment.ts"
+    "core": "bun --env-file=.env --cwd packages/core src/main.ts",
+    "experiment": "bun --env-file=.env --cwd packages/core scripts/experiment.ts"
   }
 }
