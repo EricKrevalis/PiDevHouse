@@ -1,10 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  AgentTimeoutError,
-  type AgentContext,
-} from "../modules/model/agents/agent.model.ts";
+import type { AgentContext } from "../modules/model/agents/agent.model.ts";
 import { Config } from "../modules/model/config.model.ts";
 import type { MessagePublisher } from "../modules/model/messagePublisher.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
@@ -107,15 +104,6 @@ export class WorkflowService implements WorkflowRunner {
     const timer = new Timer(runId, this.dependencies.messagePublisher);
     timer.start();
     const startedAt = new Date();
-
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    if (config.timeoutMinutes > 0) {
-      deadlineTimer = setTimeout(
-        () =>
-          cancellation.abort(new AgentTimeoutError(config.timeoutMinutes)),
-        config.timeoutMinutes * 60_000,
-      );
-    }
 
     let workspace: Workspace | undefined;
     let modelProvider: ModelProvider | undefined;
@@ -243,16 +231,11 @@ export class WorkflowService implements WorkflowRunner {
         if (latestState !== null) stories = latestState.stories;
       }
       errorMessage = caught instanceof Error ? caught.message : String(caught);
-      outcome = signal?.aborted
-        ? "cancelled"
-        : caught instanceof AgentTimeoutError
-          ? "timeout"
-          : "error";
+      outcome = signal?.aborted ? "cancelled" : "error";
       failed = true;
       finalStatus = signal?.aborted ? "cancelled" : "failed";
     } finally {
       timer.stop();
-      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
       try {
         if (workspace && modelProvider) {
           await summaryCollector.writeSummary(resolve(workspace.logDir, ".."), {

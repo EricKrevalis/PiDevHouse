@@ -56,41 +56,19 @@ async function runAgent(
   iteration: number,
   runId: string,
   dependencies: AgentContext,
-  sessionManager: SessionManager,
   signal?: AbortSignal,
+  sessionManager?: SessionManager,
 ): Promise<void> {
   await new agentClass(
     storyId,
     resolve(workspace.workspaceDir, STORIES_PATH),
     workspace,
     modelProvider,
-    config.timeoutMinutes,
+    config,
     runId,
     dependencies,
     sessionManager,
   ).run(storyId, iteration, signal);
-}
-
-const roleId = (storyId: number, role: string, iteration: number) =>
-  `story-${storyId}-${role}-${iteration}`;
-
-function forkSession(
-  developerSession: SessionManager,
-  workspace: Workspace,
-  storyId: number,
-  role: string,
-  iteration: number,
-): SessionManager {
-  try {
-    return SessionManager.forkFrom(
-      developerSession.getSessionFile()!,
-      workspace.workspaceDir,
-      workspace.sessionDir,
-      { id: roleId(storyId, role, iteration) },
-    );
-  } catch {
-    return SessionManager.inMemory();
-  }
 }
 
 export class StoryRunner {
@@ -110,7 +88,7 @@ export class StoryRunner {
     const developerSession = SessionManager.create(
       workspace.workspaceDir,
       workspace.sessionDir,
-      { id: roleId(storyId, "developer", 1) },
+      { id: `story-${storyId}-developer-1` },
     );
     for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
       await runAgent(
@@ -122,8 +100,8 @@ export class StoryRunner {
         iteration,
         runId,
         dependencies,
-        developerSession,
         signal,
+        developerSession,
       );
 
       if (config.reviewerEnabled) {
@@ -136,13 +114,6 @@ export class StoryRunner {
           iteration,
           runId,
           dependencies,
-          forkSession(
-            developerSession,
-            workspace,
-            storyId,
-            "review",
-            iteration,
-          ),
           signal,
         );
         const reviewScore = await getValidationScore(
@@ -169,7 +140,13 @@ export class StoryRunner {
           }
           continue;
         }
-        if (!config.testerEnabled) return;
+        if (!config.testerEnabled) {
+          await dependencies.storyStore.setStatus(
+            storyId,
+            config.terminalStatus,
+          );
+          return;
+        }
       }
 
       if (config.testerEnabled) {
@@ -182,13 +159,6 @@ export class StoryRunner {
           iteration,
           runId,
           dependencies,
-          forkSession(
-            developerSession,
-            workspace,
-            storyId,
-            "test",
-            iteration,
-          ),
           signal,
         );
         const testScore = await getValidationScore(
@@ -199,6 +169,10 @@ export class StoryRunner {
           this.messagePublisher,
         );
         if (testScore >= config.minScore) {
+          await dependencies.storyStore.setStatus(
+            storyId,
+            config.terminalStatus,
+          );
           return;
         }
         const test = trackPlateau(testScore, config.minScore, testPlateau);
