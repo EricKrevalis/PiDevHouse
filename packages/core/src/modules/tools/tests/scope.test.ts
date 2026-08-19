@@ -30,11 +30,13 @@ type Hook = (
 const context = (name: string, path: string): BeforeToolCallContext =>
   ({ toolCall: { name }, args: { path } }) as unknown as BeforeToolCallContext;
 
-function scoped(root: string): { beforeToolCall: Hook | undefined } {
+function scoped(roots: string | string[]): {
+  beforeToolCall: Hook | undefined;
+} {
   const agent: { beforeToolCall: Hook | undefined } = {
     beforeToolCall: undefined,
   };
-  scopeToolCalls(agent, root);
+  scopeToolCalls(agent, Array.isArray(roots) ? roots : [roots]);
   return agent;
 }
 
@@ -45,6 +47,22 @@ it("blocks outside paths", async () => {
 
   assert.equal(
     (await hook(context("write", join(outside, "x"))))?.block,
+    true,
+  );
+});
+
+it("allows paths inside any configured root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pidev-"));
+  const second = await mkdtemp(join(tmpdir(), "pidev-"));
+  const hook = scoped([root, second]).beforeToolCall!;
+
+  assert.equal(await hook(context("write", "src/index.ts")), undefined);
+  assert.equal(
+    (await hook(context("write", join(second, "story-1.png"))))?.block,
+    undefined,
+  );
+  assert.equal(
+    (await hook(context("write", join(root, "..", "escape.ts"))))?.block,
     true,
   );
 });

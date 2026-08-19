@@ -56,7 +56,7 @@ async function isScopedPath(root: string, input: string): Promise<boolean> {
 
 export function scopeToolCalls(
   agent: Pick<Agent, "beforeToolCall">,
-  root: string,
+  roots: readonly string[],
 ): void {
   const originalHook = agent.beforeToolCall;
   let toolCallCount = 0;
@@ -75,10 +75,15 @@ export function scopeToolCalls(
     if (PATH_TOOLS.has(ctx.toolCall.name)) {
       const args = ctx.args as Record<string, unknown>;
       const path = args.path ?? args.file_path;
-      if (path && !(await isScopedPath(root, String(path)))) {
+      const inside = path
+        ? (await Promise.all(
+            roots.map((root) => isScopedPath(root, String(path))),
+          )).some(Boolean)
+        : true;
+      if (!inside) {
         return {
           block: true,
-          reason: `Tool paths must stay inside ${root}`,
+          reason: `Tool paths must stay inside ${roots.join(", ")}`,
         };
       }
       if (
