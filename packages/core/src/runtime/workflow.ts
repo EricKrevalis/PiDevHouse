@@ -65,14 +65,16 @@ async function createRunDirectory(
   const workspaceDir = resolve(runDir, "src");
   const logDir = resolve(runDir, "log");
   const testDir = resolve(runDir, "test");
+  const sessionDir = resolve(runDir, "sessions");
 
   await Promise.all([
     mkdir(workspaceDir, { recursive: true }),
     mkdir(logDir, { recursive: true }),
     mkdir(testDir, { recursive: true }),
+    mkdir(sessionDir, { recursive: true }),
   ]);
 
-  return { logDir, workspaceDir, testDir };
+  return { logDir, workspaceDir, testDir, sessionDir };
 }
 
 type WorkflowDependencies = {
@@ -150,7 +152,6 @@ export class WorkflowService implements WorkflowRunner {
       });
 
       let initialState: { stories: Story[] } | null = null;
-      // PO gets 1 retry
       for (let attempt = 0; attempt < 2 && initialState === null; attempt++) {
         if (attempt > 0) {
           this.dependencies.messagePublisher.publish({

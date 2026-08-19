@@ -5,13 +5,10 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { AgentEventBridge } from "../../service/agentEventBridge.ts";
 import type { SummaryCollector } from "../../service/summaryCollector.ts";
-import {
-  createCustomTools,
-  toolName,
-  ToolRef,
-} from "../../tools/registry.ts";
+import { createCustomTools, toolName, ToolRef } from "../../tools/registry.ts";
 import type { StoryStore } from "../../tools/story/stories.ts";
 import { scopeToolCalls } from "../../tools/scope.ts";
 import type { MessagePublisher } from "../messagePublisher.model.ts";
@@ -25,6 +22,8 @@ export interface AgentContext {
   messagePublisher: MessagePublisher;
 }
 
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
+
 interface AgentOptions extends AgentContext {
   runId: string;
   workspace: Workspace;
@@ -32,6 +31,7 @@ interface AgentOptions extends AgentContext {
   systemPrompt: string;
   userPrompt: string;
   timeoutMinutes?: number;
+  sessionManager?: SessionManager;
 }
 
 export class AgentTimeoutError extends Error {
@@ -52,6 +52,7 @@ export abstract class Agent {
     this.summaryCollector = options.summaryCollector;
     this.storyStore = options.storyStore;
     this.timeoutMinutes = options.timeoutMinutes ?? 0;
+    this.sessionManager = options.sessionManager ?? SessionManager.inMemory();
     this.systemPrompt = this.withTimeoutPrompt(
       options.systemPrompt,
       this.timeoutMinutes,
@@ -68,6 +69,7 @@ export abstract class Agent {
   readonly systemPrompt: string;
   readonly userPrompt: string;
   readonly timeoutMinutes: number;
+  readonly sessionManager: SessionManager;
 
   protected buildCustomTools(): ReturnType<typeof createCustomTools> {
     return createCustomTools(this.tools, this.workspace, this.storyStore);
@@ -99,18 +101,19 @@ export abstract class Agent {
       tools: this.tools.map(toolName),
       customTools: this.buildCustomTools(),
       resourceLoader: resourceLoader,
-      sessionManager: SessionManager.inMemory(),
+      sessionManager: this.sessionManager,
       settingsManager: SettingsManager.inMemory(),
+      thinkingLevel: DEFAULT_THINKING_LEVEL,
     });
 
     let promptCompleted = false;
     try {
       this.eventBridge.attach(this, session, storyId, iteration);
       this.summaryCollector.attach(this, session, storyId, iteration);
-      scopeToolCalls(
-        session.agent,
+      scopeToolCalls(session.agent, [
         this.workspace.workspaceDir,
-      );
+        this.workspace.testDir,
+      ]);
       await this.prompt(session, signal);
       promptCompleted = true;
     } finally {
@@ -166,8 +169,6 @@ export abstract class Agent {
       }
     }
     if (timedOut) {
-      // A single slow session must not abort the whole workflow; stop the
-      // session and let the story runner treat this iteration as unfinished.
       await session.abort().catch(() => {});
     }
   }

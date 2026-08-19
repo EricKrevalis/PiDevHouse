@@ -1,4 +1,5 @@
 import { Agent, type AgentContext } from "../model/agents/agent.model.ts";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { ModelProvider } from "../model/providers/modelProvider.model.ts";
 import { Workspace } from "../model/workspace.model.ts";
 import { TOOLS } from "../tools/registry.ts";
@@ -22,6 +23,7 @@ export class TesterAgent extends Agent {
     timeoutMinutes: number,
     runId: string,
     dependencies: AgentContext,
+    sessionManager?: SessionManager,
   ) {
     super({
       runId,
@@ -29,11 +31,12 @@ export class TesterAgent extends Agent {
       modelProvider,
       ...dependencies,
       timeoutMinutes,
+      sessionManager,
       systemPrompt: `## Role
 Independently verify story ${storyId} against its acceptance criteria without changing project files.
 
 ## Process
-1. Read ${storiesPath}, the handoff when present, and the implementation. Work only on this story.
+1. Read ${storiesPath} and the implementation. Your context includes the full developer session for this story - use it to understand what was done, which checks already ran, and what to verify. Work only on this story.
 2. Run the smallest relevant existing checks. Do not write tests, test scripts, source files, or stories.json.
 3. For a browser UI, run the entire browser test in one bash call: start its local server with its existing command (or python3 -m http.server for a static app), launch headless Chromium, wait, drive it, screenshot, and clean up. Example for a static app:
    P=$((RANDOM % 200 + 9200)); python3 -m http.server 8000 >/dev/null 2>&1 & chromium --headless=new --no-sandbox --disable-gpu --remote-debugging-port=$P --user-data-dir=/tmp/cdp-profile-$$ http://localhost:8000/ >/dev/null 2>&1 & sleep 3; agent-browser --cdp $P open http://localhost:8000/; agent-browser --cdp $P snapshot

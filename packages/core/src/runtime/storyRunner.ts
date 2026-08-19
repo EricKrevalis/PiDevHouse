@@ -8,6 +8,7 @@ import type { MessagePublisher } from "../modules/model/messagePublisher.model.t
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
 import type { Story } from "../modules/model/story.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { StoryStore } from "../modules/tools/story/stories.ts";
 
@@ -55,6 +56,7 @@ async function runAgent(
   iteration: number,
   runId: string,
   dependencies: AgentContext,
+  sessionManager: SessionManager,
   signal?: AbortSignal,
 ): Promise<void> {
   await new agentClass(
@@ -65,7 +67,30 @@ async function runAgent(
     config.timeoutMinutes,
     runId,
     dependencies,
+    sessionManager,
   ).run(storyId, iteration, signal);
+}
+
+const roleId = (storyId: number, role: string, iteration: number) =>
+  `story-${storyId}-${role}-${iteration}`;
+
+function forkSession(
+  developerSession: SessionManager,
+  workspace: Workspace,
+  storyId: number,
+  role: string,
+  iteration: number,
+): SessionManager {
+  try {
+    return SessionManager.forkFrom(
+      developerSession.getSessionFile()!,
+      workspace.workspaceDir,
+      workspace.sessionDir,
+      { id: roleId(storyId, role, iteration) },
+    );
+  } catch {
+    return SessionManager.inMemory();
+  }
 }
 
 export class StoryRunner {
@@ -82,6 +107,11 @@ export class StoryRunner {
   ): Promise<void> {
     const reviewPlateau = { best: -Infinity, flat: 0 };
     const testPlateau = { best: -Infinity, flat: 0 };
+    const developerSession = SessionManager.create(
+      workspace.workspaceDir,
+      workspace.sessionDir,
+      { id: roleId(storyId, "developer", 1) },
+    );
     for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
       await runAgent(
         DeveloperAgent,
@@ -92,6 +122,7 @@ export class StoryRunner {
         iteration,
         runId,
         dependencies,
+        developerSession,
         signal,
       );
 
@@ -105,6 +136,13 @@ export class StoryRunner {
           iteration,
           runId,
           dependencies,
+          forkSession(
+            developerSession,
+            workspace,
+            storyId,
+            "review",
+            iteration,
+          ),
           signal,
         );
         const reviewScore = await getValidationScore(
@@ -144,6 +182,13 @@ export class StoryRunner {
           iteration,
           runId,
           dependencies,
+          forkSession(
+            developerSession,
+            workspace,
+            storyId,
+            "test",
+            iteration,
+          ),
           signal,
         );
         const testScore = await getValidationScore(
