@@ -1,4 +1,5 @@
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
+import { isAbsolute, relative, sep } from "node:path";
 import type { Workspace } from "../model/workspace.model.ts";
 
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -26,7 +27,38 @@ function splitSegments(command: string): string[] {
   return masked.split(/\s*&&\s*|\s*\|\|\s*|;|\||\s+&(?=\s|$)/).filter(Boolean);
 }
 
-export function validateBashCommand(command: string): string | null {
+const ABSOLUTE_PATH_PATTERN = /(?<![\w./-])(?:\/[\w.-]+)+\/?/g;
+
+function isInsideRoot(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return (
+    rel === "" ||
+    (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+  );
+}
+
+function findForeignPath(
+  command: string,
+  allowedRoots: readonly string[],
+): string | null {
+  const withoutUrls = command.replace(/\w+:\/\/\S+/g, " ");
+  for (const match of withoutUrls.matchAll(ABSOLUTE_PATH_PATTERN)) {
+    const path = match[0];
+    if (!allowedRoots.some((root) => isInsideRoot(root, path))) {
+      return path;
+    }
+  }
+  return null;
+}
+
+export function validateBashCommand(
+  command: string,
+  allowedRoots: readonly string[],
+): string | null {
+  const foreignPath = findForeignPath(command, allowedRoots);
+  if (foreignPath !== null) {
+    return `Command rejected by the bash denylist: "${foreignPath}" is outside the allowed roots (${allowedRoots.join(", ")})`;
+  }
   for (const segment of splitSegments(command)) {
     if (/\$\([^(]/.test(segment) || segment.includes("`")) {
       return `Command rejected by the bash denylist: command substitution is not allowed: "${segment}"`;
@@ -71,9 +103,15 @@ export const wrapBashCommand = ({
   ].join(" ");
 
 export function createSandboxedBashTool(workspace: Workspace) {
+  const allowedRoots = [
+    workspace.workspaceDir,
+    workspace.testDir,
+    "/tmp",
+    "/dev/null",
+  ];
   return createBashToolDefinition(workspace.workspaceDir, {
     spawnHook: (context) => {
-      const denied = validateBashCommand(context.command);
+      const denied = validateBashCommand(context.command, allowedRoots);
       if (denied !== null) {
         return { ...context, command: `echo ${quote(denied)}; exit 1` };
       }

@@ -14,7 +14,6 @@ import {
 } from "node:path";
 import { STORIES_PATH, TOOLS } from "./registry.ts";
 
-const MAX_TOOL_CALLS = 25;
 const PATH_TOOLS = new Set<string>([
   TOOLS.read,
   TOOLS.write,
@@ -57,6 +56,7 @@ async function isScopedPath(root: string, input: string): Promise<boolean> {
 export function scopeToolCalls(
   agent: Pick<Agent, "beforeToolCall">,
   roots: readonly string[],
+  maxToolCalls: number,
 ): void {
   const originalHook = agent.beforeToolCall;
   let toolCallCount = 0;
@@ -65,7 +65,7 @@ export function scopeToolCalls(
     ctx: BeforeToolCallContext,
     signal?: AbortSignal,
   ): Promise<BeforeToolCallResult | undefined> => {
-    if (++toolCallCount > MAX_TOOL_CALLS) {
+    if (++toolCallCount > maxToolCalls) {
       return {
         block: true,
         reason: `Tool-call limit reached. Do not call more tools; complete the task now with a final response using the work already done.`,

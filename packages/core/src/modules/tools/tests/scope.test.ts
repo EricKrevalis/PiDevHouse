@@ -36,7 +36,7 @@ function scoped(roots: string | string[]): {
   const agent: { beforeToolCall: Hook | undefined } = {
     beforeToolCall: undefined,
   };
-  scopeToolCalls(agent, Array.isArray(roots) ? roots : [roots]);
+  scopeToolCalls(agent, Array.isArray(roots) ? roots : [roots], 25);
   return agent;
 }
 
@@ -85,4 +85,17 @@ it("allows normal in-root paths and protects stories.json", async () => {
     (await hook(context("write", "stories.json")))?.block,
     true,
   );
+});
+
+it("blocks tool calls beyond the configured limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pidev-"));
+  const agent: { beforeToolCall: Hook | undefined } = {
+    beforeToolCall: undefined,
+  };
+  scopeToolCalls(agent, [root], 2);
+  const hook = agent.beforeToolCall!;
+
+  assert.equal(await hook(context("read", "src/a.ts")), undefined);
+  assert.equal(await hook(context("read", "src/b.ts")), undefined);
+  assert.equal((await hook(context("read", "src/c.ts")))?.block, true);
 });
