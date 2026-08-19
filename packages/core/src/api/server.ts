@@ -87,7 +87,6 @@ export class ApiServer implements MessageSubscriber {
       shutdownTimer = setTimeout(resolve, this.shutdownGracePeriodMs);
     });
     try {
-      // ponytail: bounded shutdown wait; add hard cancellation if this remains insufficient
       const workflows = [...this.activeWorkflows.keys()];
       await Promise.race([Promise.allSettled(workflows), shutdownTimeout]);
       if (this.activeWorkflows.size > 0) {
@@ -230,7 +229,6 @@ export class ApiServer implements MessageSubscriber {
         }
       }
     } catch {
-      // Ignore malformed subscription frames.
     }
   }
 

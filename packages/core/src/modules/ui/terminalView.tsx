@@ -27,7 +27,6 @@ export class TerminalView implements MessageSubscriber {
   private readonly state = new TerminalState();
   private renderer?: CliRenderer;
   private storyCount?: number;
-  // ponytail: one transcript assumes one active stream; add per-agent streams for parallel output.
   private isStreamBeginning = true;
   private streamNeedsNewline = false;
 

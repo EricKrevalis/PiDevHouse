@@ -52,7 +52,6 @@ export class TerminalState {
   }
 
   write(content: string, color?: string): void {
-    // ponytail: O(n^2) token appends; use TextBuffer if streamed output ever lags.
     const output = this.output;
     const previous = output.at(-1);
     if (previous && previous.color === color) {
