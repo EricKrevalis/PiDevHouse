@@ -34,15 +34,11 @@ interface AgentOptions extends AgentContext {
   sessionManager?: SessionManager;
 }
 
-export class AgentTimeoutError extends Error {
-  constructor(timeoutMinutes: number) {
-    super(`Agent run exceeded ${timeoutMinutes} minute(s)`);
-  }
-}
-
 export abstract class Agent {
   abstract readonly name: string;
   abstract readonly tools: readonly ToolRef[];
+  readonly maxToolCalls: number = 25;
+  readonly thinkingLevel: ThinkingLevel = DEFAULT_THINKING_LEVEL;
 
   constructor(options: AgentOptions) {
     this.runId = options.runId;
@@ -77,7 +73,11 @@ export abstract class Agent {
 
   private withTimeoutPrompt(prompt: string, timeoutMinutes: number): string {
     if (timeoutMinutes <= 0) return prompt;
-    return `${prompt}\n\n## Timeout\nYou have ${timeoutMinutes} minute(s) for this run. Prioritize and finish within the limit; an unfinished run is a failure.`;
+    return `${prompt}\n\n## Time budget\nYou have ${timeoutMinutes} minutes for this run. Do the highest-value work first and record your best result before the limit.`;
+  }
+
+  protected userPromptFor(iteration?: number): string {
+    return this.userPrompt;
   }
 
   async run(
@@ -103,18 +103,19 @@ export abstract class Agent {
       resourceLoader: resourceLoader,
       sessionManager: this.sessionManager,
       settingsManager: SettingsManager.inMemory(),
-      thinkingLevel: DEFAULT_THINKING_LEVEL,
+      thinkingLevel: this.thinkingLevel,
     });
 
     let promptCompleted = false;
     try {
       this.eventBridge.attach(this, session, storyId, iteration);
       this.summaryCollector.attach(this, session, storyId, iteration);
-      scopeToolCalls(session.agent, [
-        this.workspace.workspaceDir,
-        this.workspace.testDir,
-      ]);
-      await this.prompt(session, signal);
+      scopeToolCalls(
+        session.agent,
+        [this.workspace.workspaceDir, this.workspace.testDir],
+        this.maxToolCalls,
+      );
+      await this.prompt(session, iteration, signal);
       promptCompleted = true;
     } finally {
       if (!promptCompleted) {
@@ -126,13 +127,14 @@ export abstract class Agent {
 
   private async prompt(
     session: AgentSession,
+    iteration: number | undefined,
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
     const timeoutMinutes = this.timeoutMinutes;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
-    const promptPromise = session.prompt(this.userPrompt);
+    const promptPromise = session.prompt(this.userPromptFor(iteration));
     promptPromise.catch(() => {});
     const waits: Array<Promise<unknown>> = [promptPromise];
     if (timeoutMinutes > 0) {
