@@ -1,18 +1,13 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createApplicationContext } from "../src/application.ts";
 import { Config } from "../src/modules/model/config.model.ts";
 import type { Summary } from "../src/modules/model/summary.model.ts";
 import { TerminalView } from "../src/modules/ui/terminalView.tsx";
 
-const OUTPUT_ROOT = resolve(import.meta.dirname ?? ".", "../../output");
+const REPOSITORY_ROOT = resolve(import.meta.dirname ?? ".", "../../..");
+const OUTPUT_ROOT = resolve(REPOSITORY_ROOT, "output");
 const DEFAULT_REQUEST = "Build an interactive web todo app.";
-
-try {
-  process.loadEnvFile(resolve(import.meta.dirname ?? ".", "../../.env"));
-} catch {
-  // no .env file
-}
 
 function outputSubdir(): string | undefined {
   const flag = process.argv.find((arg) =>
@@ -61,25 +56,28 @@ async function experimentOutput(): Promise<{
   }
 }
 
-async function latestRunDir(outputRoot: string): Promise<string | null> {
-  let newest: string | null = null;
-  let newestMtime = 0;
-  for (const group of await readdir(outputRoot, { withFileTypes: true })) {
-    if (!group.isDirectory()) continue;
-    for (const entry of await readdir(resolve(outputRoot, group.name), {
-      withFileTypes: true,
-    })) {
-      if (!entry.isDirectory()) continue;
-      const mtime = (await stat(
-        resolve(outputRoot, group.name, entry.name),
-      )).mtime;
-      if (mtime && mtime.getTime() > newestMtime) {
-        newestMtime = mtime.getTime();
-        newest = `${group.name}/${entry.name}`;
+async function runDir(
+  outputRoot: string,
+  runId: string,
+): Promise<string | null> {
+  try {
+    for (const group of await readdir(outputRoot, { withFileTypes: true })) {
+      if (!group.isDirectory()) continue;
+      for (const entry of await readdir(resolve(outputRoot, group.name), {
+        withFileTypes: true,
+      })) {
+        if (
+          entry.isDirectory() &&
+          entry.name.endsWith(`-${runId.slice(0, 8)}`)
+        ) {
+          return `${group.name}/${entry.name}`;
+        }
       }
     }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  return newest;
+  return null;
 }
 
 interface VariantSpec {
@@ -124,7 +122,12 @@ async function main(): Promise<void> {
     .slice(2)
     .find((arg) => !arg.startsWith("--"));
   const spec: Spec = specPath
-    ? (JSON.parse(await readFile(specPath, "utf8")) as Spec)
+    ? (JSON.parse(
+        await readFile(
+          resolve(REPOSITORY_ROOT, specPath),
+          "utf8",
+        ),
+      ) as Spec)
     : {};
   const repeat = spec.repeat ?? 3;
   const variants: Variant[] = (spec.variants ?? [{}]).map((variant) => ({
@@ -133,7 +136,6 @@ async function main(): Promise<void> {
   }));
 
   const results: Result[] = [];
-  // ponytail: runs share one process; restore child isolation if state leaks between runs.
   const application = createApplicationContext();
   const terminalView = await TerminalView.create({
     eventBus: application.eventBus,
@@ -145,6 +147,7 @@ async function main(): Promise<void> {
   };
   process.once("SIGINT", cancel);
   process.once("SIGTERM", cancel);
+  let reportOutput: string | undefined;
 
   try {
     for (const [variantIndex, variant] of variants.entries()) {
@@ -156,13 +159,14 @@ async function main(): Promise<void> {
           }/${variants.length}, run ${runIndex}/${repeat} ===\n`,
           "yellow",
         );
+        const runId = crypto.randomUUID();
         const failed = await application.workflowService.run(
           Config.fromArgs([...variant.flags, variant.request]),
-          undefined,
+          runId,
           terminalView.signal,
         );
 
-        const runName = (await latestRunDir(outputRoot)) ?? "";
+        const runName = (await runDir(outputRoot, runId)) ?? "";
         let summary: Summary | null = null;
         try {
           summary = JSON.parse(
@@ -190,11 +194,11 @@ async function main(): Promise<void> {
       `${JSON.stringify({ outputSubdir: subdir, spec: { repeat, variants }, results }, null, 2)}\n`,
     );
 
-    terminalView.write("\n# Results\n");
-    terminalView.write(
+    const reportLines = [
+      "\n# Results\n",
       "| Variant | Run | Outcome | Exit | Duration | Tested | Tokens | Calls |",
-    );
-    terminalView.write("\n|---|---|---|---|---|---|---|---|\n");
+      "|---|---|---|---|---|---|---|---|",
+    ];
     for (const result of results) {
       const summary = result.summary;
       const totals = summary
@@ -212,19 +216,20 @@ async function main(): Promise<void> {
         }/${summary.stories.length}`
         : "-";
       const duration = summary ? `${summary.durationSeconds}s` : "-";
-      terminalView.write(
+      reportLines.push(
         `| ${result.variantIndex} | ${result.runIndex} | ${
           summary?.outcome ?? "no_summary"
         } | ${result.exitCode} | ${duration} | ${tested} | ${totals.tokens} | ${totals.calls} |`,
       );
-      terminalView.write("\n");
     }
-    terminalView.write(`\nExperiment report: ${reportPath}\n`);
+    reportLines.push(`\nExperiment report: ${reportPath}`);
+    reportOutput = `${reportLines.join("\n")}\n`;
   } finally {
     process.off("SIGINT", cancel);
     process.off("SIGTERM", cancel);
     await terminalView.close();
   }
+  if (reportOutput !== undefined) process.stdout.write(reportOutput);
 }
 
 await main();

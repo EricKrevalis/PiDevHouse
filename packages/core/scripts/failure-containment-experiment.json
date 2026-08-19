@@ -21,7 +21,7 @@
       "flags": {
         "max-iterations": 4,
         "min-score": 75,
-        "timeout-minutes": 5
+        "timeout-minutes": 8
       }
     }
   ]
