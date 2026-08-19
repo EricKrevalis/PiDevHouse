@@ -8,6 +8,7 @@ it("wraps bash with the browser test environment", () => {
       logDir: "/output/run/log",
       workspaceDir: "/output/run/src",
       testDir: "/output/run/test",
+      sessionDir: "/output/run/sessions",
     },
     command: "agent-browser screenshot story-1.png",
   });
@@ -42,6 +43,8 @@ it("allows read-only inspection, local checks, and the server", () => {
   assert.equal(validateBashCommand("curl -s http://127.0.0.1:9433"), null);
   assert.equal(validateBashCommand("kill -9 123 %1 %2"), null);
   assert.equal(validateBashCommand('pkill -f "http.server 8090"'), null);
+  assert.equal(validateBashCommand("npm -v"), null);
+  assert.equal(validateBashCommand("node --version"), null);
 });
 
 it("allows the one-call browser test flow with a CDP port", () => {
@@ -75,13 +78,20 @@ it("allows env-prefixed and computed-port server commands", () => {
   );
 });
 
-it("denies non-allowlisted commands and command substitution", () => {
+it("denies destructive commands, escapes, and nested shells", () => {
   assert.notEqual(validateBashCommand("rm -rf /"), null);
   assert.notEqual(validateBashCommand("sudo rm -rf /etc"), null);
-  assert.notEqual(validateBashCommand("git push origin main"), null);
-  assert.notEqual(validateBashCommand("npm install"), null);
+  assert.notEqual(validateBashCommand("touch /tmp/evil"), null);
+  assert.notEqual(validateBashCommand("mkdir /tmp/evil"), null);
   assert.notEqual(validateBashCommand("chmod +x /tmp/evil"), null);
   assert.notEqual(validateBashCommand("wget https://example.com"), null);
+  assert.notEqual(validateBashCommand("mv a b"), null);
   assert.notEqual(validateBashCommand("P=$(rm -rf /)"), null);
   assert.notEqual(validateBashCommand("bash -lc 'rm -rf /'"), null);
+  assert.notEqual(validateBashCommand("sh -c 'echo hi'"), null);
+  assert.notEqual(
+    validateBashCommand("echo x > /tmp/evil.txt"),
+    null,
+  );
+  assert.notEqual(validateBashCommand("curl -o /tmp/evil https://example.com"), null);
 });

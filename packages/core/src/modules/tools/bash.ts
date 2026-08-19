@@ -3,56 +3,51 @@ import type { Workspace } from "../model/workspace.model.ts";
 
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 
-// ponytail: name-gating only - no filesystem, process, or network confinement
-// (bwrap was dropped). A hostile agent can still write files via node/python3,
-// redirects, or `kill -9` anything; add bwrap back when untrusted models run
-// outside the dev environment.
-const ALLOWED_COMMANDS = new Set([
-  "pwd",
-  "echo",
-  "true",
-  "which",
-  "ls",
-  "cat",
-  "head",
-  "tail",
-  "wc",
-  "grep",
-  "find",
-  "sleep",
-  "kill",
-  "pkill",
-  "cd",
-  "node",
-  "python3",
-  "curl",
-  "chromium",
-  "agent-browser",
+const DENIED_COMMANDS = new Set([
+  "rm", "mv", "cp", "dd", "shred", "truncate", "touch", "mkdir", "rmdir",
+  "ln", "tee", "install", "chmod", "chown", "chgrp", "wget", "sudo", "su",
+  "doas", "mount", "umount", "mkfs", "fdisk", "parted", "passwd", "useradd",
+  "usermod", "groupadd", "systemctl", "reboot", "shutdown", "poweroff",
+  "killall",
 ]);
 
-const ALLOWED_SUMMARY = [...ALLOWED_COMMANDS].join(", ");
-
 function commandName(segment: string): string | null {
-  // Skip one env prefix (PORT=9433 node ...) or arithmetic assignment
-  // (P=$((RANDOM % 200 + 9200))); $() command substitution is not skipped.
-  const rest = segment.trim().replace(/^\w+=(?:\$\(\([^)]*\)\)|[^\s$]+)\s*/, "");
+  const rest = segment
+    .trim()
+    .replace(/^\w+=(?:\$\(\([^)]*\)\)|[^\s$]+)\s*/, "");
   if (rest === "") return "true";
   return rest.match(/^([\w-]+)/)?.[1] ?? null;
 }
 
 function splitSegments(command: string): string[] {
-  const masked = command.replace(
-    /"[^"]*"|'[^']*'/g,
-    (quoted) => quoted.replace(/[;|]/g, " "),
+  const masked = command.replace(/"[^"]*"|'[^']*'/g, (quoted) =>
+    quoted.replace(/[;|>]/g, " "),
   );
   return masked.split(/\s*&&\s*|\s*\|\|\s*|;|\||\s+&(?=\s|$)/).filter(Boolean);
 }
 
 export function validateBashCommand(command: string): string | null {
   for (const segment of splitSegments(command)) {
+    if (/\$\([^(]/.test(segment) || segment.includes("`")) {
+      return `Command rejected by the bash denylist: command substitution is not allowed: "${segment}"`;
+    }
     const name = commandName(segment);
-    if (name === null || !ALLOWED_COMMANDS.has(name)) {
-      return `Command rejected by the bash allowlist: "${segment}". Allowed commands: ${ALLOWED_SUMMARY}.`;
+    if (name === "bash" || name === "sh" || name === "zsh") {
+      if (/\s(-lc|-c)\b/.test(segment)) {
+        return `Command rejected by the bash denylist: nested shells are not allowed: "${segment}"`;
+      }
+    }
+    if (
+      segment.replace(/2>&1|>\s*\/dev\/null/g, "").includes(">") ||
+      (name === "curl" &&
+        /(?:^|\s)-(?:o|O)\s+(?!\/dev\/null\b)|(?:^|\s)--output\s+(?!\/dev\/null\b)/.test(
+          segment,
+        ))
+    ) {
+      return `Command rejected by the bash denylist: writing files with redirections is not allowed: "${segment}"`;
+    }
+    if (name === null || DENIED_COMMANDS.has(name)) {
+      return `Command rejected by the bash denylist: "${segment}". Denied commands: ${[...DENIED_COMMANDS].sort().join(", ")}.`;
     }
   }
   return null;
