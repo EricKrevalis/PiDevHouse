@@ -10,7 +10,6 @@ it("wraps bash with the browser test environment", () => {
       logDir: "/output/run/log",
       workspaceDir: "/output/run/src",
       testDir: "/output/run/test",
-      sessionDir: "/output/run/sessions",
     },
     command: "agent-browser screenshot story-1.png",
   });

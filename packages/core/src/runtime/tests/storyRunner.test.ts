@@ -138,7 +138,6 @@ async function testContext(): Promise<{
     logDir: join(dir, "log"),
     workspaceDir: join(dir, "src"),
     testDir: join(dir, "test"),
-    sessionDir: join(dir, "sessions"),
   };
   const dependencies: AgentContext = {
     eventBridge: {} as AgentContext["eventBridge"],

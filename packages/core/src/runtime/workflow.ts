@@ -62,16 +62,14 @@ async function createRunDirectory(
   const workspaceDir = resolve(runDir, "src");
   const logDir = resolve(runDir, "log");
   const testDir = resolve(runDir, "test");
-  const sessionDir = resolve(runDir, "sessions");
 
   await Promise.all([
     mkdir(workspaceDir, { recursive: true }),
     mkdir(logDir, { recursive: true }),
     mkdir(testDir, { recursive: true }),
-    mkdir(sessionDir, { recursive: true }),
   ]);
 
-  return { logDir, workspaceDir, testDir, sessionDir };
+  return { logDir, workspaceDir, testDir };
 }
 
 type WorkflowDependencies = {

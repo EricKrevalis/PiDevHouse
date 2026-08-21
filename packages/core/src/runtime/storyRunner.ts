@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { DeveloperAgent } from "../modules/agents/developer.agent.ts";
+
 import { ReviewerAgent } from "../modules/agents/reviewer.agent.ts";
 import { TesterAgent } from "../modules/agents/tester.agent.ts";
 import type { AgentContext } from "../modules/model/agents/agent.model.ts";
@@ -8,7 +9,6 @@ import type { MessagePublisher } from "../modules/model/messagePublisher.model.t
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
 import type { Story } from "../modules/model/story.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { StoryStore } from "../modules/tools/story/stories.ts";
 
@@ -57,7 +57,6 @@ async function runAgent(
   runId: string,
   dependencies: AgentContext,
   signal?: AbortSignal,
-  sessionManager?: SessionManager,
 ): Promise<void> {
   await new agentClass(
     storyId,
@@ -67,7 +66,6 @@ async function runAgent(
     config,
     runId,
     dependencies,
-    sessionManager,
   ).run(storyId, iteration, signal);
 }
 
@@ -85,11 +83,6 @@ export class StoryRunner {
   ): Promise<void> {
     const reviewPlateau = { best: -Infinity, flat: 0 };
     const testPlateau = { best: -Infinity, flat: 0 };
-    const developerSession = SessionManager.create(
-      workspace.workspaceDir,
-      workspace.sessionDir,
-      { id: `story-${storyId}-developer-1` },
-    );
     for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
       await runAgent(
         DeveloperAgent,
@@ -101,7 +94,6 @@ export class StoryRunner {
         runId,
         dependencies,
         signal,
-        developerSession,
       );
 
       if (config.reviewerEnabled) {
