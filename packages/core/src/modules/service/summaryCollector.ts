@@ -55,6 +55,19 @@ export class SummaryCollector {
       usage.reasoningTokens += event.message.usage.reasoning ?? 0;
       state.agents.set(agent.name, usage);
     }
+    if (
+      event.type === "message_update" &&
+      event.assistantMessageEvent.type === "thinking_delta"
+    ) {
+      const usage = state.agents.get(agent.name) ?? {
+        calls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+      };
+      usage.reasoningTokens += Math.ceil(event.assistantMessageEvent.delta.length / 4);
+      state.agents.set(agent.name, usage);
+    }
 
     if (storyId === undefined) return;
     const track = state.tracks.get(storyId) ?? {
