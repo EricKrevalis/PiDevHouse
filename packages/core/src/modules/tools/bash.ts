@@ -42,7 +42,8 @@ function findForeignPath(
   allowedRoots: readonly string[],
 ): string | null {
   const withoutUrls = command.replace(/\w+:\/\/\S+/g, " ");
-  for (const match of withoutUrls.matchAll(ABSOLUTE_PATH_PATTERN)) {
+  const withoutQuoted = withoutUrls.replace(/"[^"]*"|'[^']*'/g, " ");
+  for (const match of withoutQuoted.matchAll(ABSOLUTE_PATH_PATTERN)) {
     const path = match[0];
     if (!allowedRoots.some((root) => isInsideRoot(root, path))) {
       return path;

@@ -60,23 +60,7 @@ export async function readStories(
   }
 }
 
-export class Mutex {
-  private tail: Promise<void> = Promise.resolve();
-
-  acquire(): Promise<() => void> {
-    let release!: () => void;
-    const turn = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const previous = this.tail;
-    this.tail = turn;
-    return previous.then(() => release);
-  }
-}
-
 export class StoryStore {
-  private readonly mutex = new Mutex();
-
   constructor(readonly path: string) {}
 
   read(): Promise<{ stories: Story[] } | null> {
@@ -87,31 +71,22 @@ export class StoryStore {
     return writeStoriesFile(this.path, stories);
   }
 
-  acquire(): Promise<() => void> {
-    return this.mutex.acquire();
-  }
-
   async setStatus(storyId: number, status: Story["status"]): Promise<void> {
-    const release = await this.acquire();
-    try {
-      const state = await this.read();
-      const story = state?.stories.find((item) => item.id === storyId);
-      if (
-        !state ||
-        !story ||
-        story.status === "blocked" ||
-        story.status === status
-      ) {
-        return;
-      }
-      await this.write(
-        state.stories.map((item) =>
-          item.id === storyId ? { ...item, status } : item,
-        ),
-      );
-    } finally {
-      release();
+    const state = await this.read();
+    const story = state?.stories.find((item) => item.id === storyId);
+    if (
+      !state ||
+      !story ||
+      story.status === "blocked" ||
+      story.status === status
+    ) {
+      return;
     }
+    await this.write(
+      state.stories.map((item) =>
+        item.id === storyId ? { ...item, status } : item,
+      ),
+    );
   }
 
   async block(
@@ -119,28 +94,23 @@ export class StoryStore {
     terminalStatus?: Story["status"],
     allowTerminal = false,
   ): Promise<boolean> {
-    const release = await this.acquire();
-    try {
-      const state = await this.read();
-      const story = state?.stories.find((item) => item.id === storyId);
-      if (
-        !state ||
-        !story ||
-        story.status === "blocked" ||
-        (story.status === terminalStatus && !allowTerminal)
-      ) {
-        return false;
-      }
-
-      await this.write(
-        state.stories.map((item) =>
-          item.id === storyId ? { ...item, status: "blocked" as const } : item,
-        ),
-      );
-      return true;
-    } finally {
-      release();
+    const state = await this.read();
+    const story = state?.stories.find((item) => item.id === storyId);
+    if (
+      !state ||
+      !story ||
+      story.status === "blocked" ||
+      (story.status === terminalStatus && !allowTerminal)
+    ) {
+      return false;
     }
+
+    await this.write(
+      state.stories.map((item) =>
+        item.id === storyId ? { ...item, status: "blocked" as const } : item,
+      ),
+    );
+    return true;
   }
 }
 

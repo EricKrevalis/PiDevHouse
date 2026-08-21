@@ -7,6 +7,7 @@ import { TOOLS } from "../tools/registry.ts";
 
 export class TesterAgent extends Agent {
   readonly name = "tester";
+  readonly maxToolCalls = 60;
   readonly tools = [
     "read",
     "bash",

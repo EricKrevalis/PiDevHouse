@@ -22,18 +22,13 @@ export function createWriteStoriesTool(storyStore: StoryStore): ToolDefinition {
       if (!check.success) {
         return toolResult(`Error: ${check.error.issues[0]?.message}`);
       }
-      const release = await storyStore.acquire();
-      try {
-        await storyStore.write(
-          check.data.map((story) => ({
-            ...story,
-            reviewResult: { score: 0, note: "" },
-            testResult: { score: 0, note: "" },
-          })),
-        );
-      } finally {
-        release();
-      }
+      await storyStore.write(
+        check.data.map((story) => ({
+          ...story,
+          reviewResult: { score: 0, note: "" },
+          testResult: { score: 0, note: "" },
+        })),
+      );
       return toolResult(`Wrote ${check.data.length} stories to stories.json`);
     },
   };

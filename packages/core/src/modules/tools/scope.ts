@@ -54,11 +54,12 @@ async function isScopedPath(root: string, input: string): Promise<boolean> {
 }
 
 export function scopeToolCalls(
-  agent: Pick<Agent, "beforeToolCall">,
+  agent: Pick<Agent, "beforeToolCall" | "afterToolCall">,
   roots: readonly string[],
   maxToolCalls: number,
 ): void {
-  const originalHook = agent.beforeToolCall;
+  const originalBefore = agent.beforeToolCall;
+  const originalAfter = agent.afterToolCall;
   let toolCallCount = 0;
 
   agent.beforeToolCall = async (
@@ -98,6 +99,22 @@ export function scopeToolCalls(
       }
     }
 
-    return originalHook?.(ctx, signal);
+    return originalBefore?.(ctx, signal);
+  };
+
+  agent.afterToolCall = async (
+    ctx,
+    signal,
+  ): Promise<import("@earendil-works/pi-agent-core").AfterToolCallResult | undefined> => {
+    const result = originalAfter?.(ctx, signal);
+    if (ctx.toolCall.name === "read" || ctx.toolCall.name === "bash") {
+      const text = (ctx.result as { content?: { text?: string }[] })?.content?.[0]?.text;
+      if (typeof text === "string" && text.length > 4000) {
+        return {
+          content: [{ type: "text", text: `${text.slice(0, 4000)}\n… [truncated ${text.length - 4000} chars]` }],
+        };
+      }
+    }
+    return result;
   };
 }

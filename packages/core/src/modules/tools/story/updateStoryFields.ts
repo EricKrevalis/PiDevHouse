@@ -37,33 +37,28 @@ export function createUpdateStoryFieldsTool(
         return toolResult(`Error: ${parsed.error.issues[0]?.message}`);
       }
 
-      const release = await storyStore.acquire();
-      try {
-        const state = await storyStore.read();
-        if (!state) {
-          return toolResult("Error: stories.json is missing or invalid");
-        }
-        if (!state.stories.some((story) => story.id === parsed.data.id)) {
-          return toolResult(`Error: story ${parsed.data.id} not found`);
-        }
-
-        const updated = state.stories.map((story) =>
-          story.id === parsed.data.id
-            ? { ...story, ...parsed.data.fields }
-            : story,
-        );
-        const check = storiesArraySchema.safeParse(updated);
-        if (!check.success) {
-          return toolResult(`Error: ${check.error.issues[0]?.message}`);
-        }
-
-        await storyStore.write(check.data);
-        return toolResult(
-          `Updated story ${parsed.data.id} (${Object.keys(parsed.data.fields).join(", ")})`,
-        );
-      } finally {
-        release();
+      const state = await storyStore.read();
+      if (!state) {
+        return toolResult("Error: stories.json is missing or invalid");
       }
+      if (!state.stories.some((story) => story.id === parsed.data.id)) {
+        return toolResult(`Error: story ${parsed.data.id} not found`);
+      }
+
+      const updated = state.stories.map((story) =>
+        story.id === parsed.data.id
+          ? { ...story, ...parsed.data.fields }
+          : story,
+      );
+      const check = storiesArraySchema.safeParse(updated);
+      if (!check.success) {
+        return toolResult(`Error: ${check.error.issues[0]?.message}`);
+      }
+
+      await storyStore.write(check.data);
+      return toolResult(
+        `Updated story ${parsed.data.id} (${Object.keys(parsed.data.fields).join(", ")})`,
+      );
     },
   };
 }
