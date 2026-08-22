@@ -4,10 +4,18 @@
   "packageManager": "bun@1.3.13",
   "workspaces": ["packages/*"],
   "scripts": {
-    "dev": "bun run --cwd packages/core dev",
-    "check": "bun run --cwd packages/core check",
-    "test": "bun run --cwd packages/core test",
-    "core": "bun --env-file=.env --cwd packages/core src/main.ts",
-    "experiment": "bun --env-file=.env --cwd packages/core scripts/experiment.ts"
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check": "turbo run check",
+    "test": "turbo run test --filter=@pidev/core",
+    "core": "bun packages/core/src/main.ts",
+    "desktop:dev": "bun run --filter @pidev/desktop tauri:dev",
+    "desktop:build": "bun run --filter @pidev/desktop tauri:build",
+    "report": "bun scripts/report.ts",
+    "experiment": "bun scripts/experiment.ts",
+    "mtp": "./run-mtp.sh"
+  },
+  "devDependencies": {
+    "turbo": "2.10.5"
   }
 }

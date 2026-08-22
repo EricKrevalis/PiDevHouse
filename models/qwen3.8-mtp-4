@@ -1,0 +1,2 @@
+FROM hf.co/unsloth/Qwen3.8-27B-GGUF:Q3_K_S
+PARAMETER draft_num_predict 4
