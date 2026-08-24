@@ -41,7 +41,8 @@ function findForeignPath(
   command: string,
   allowedRoots: readonly string[],
 ): string | null {
-  const withoutUrls = command.replace(/\w+:\/\/\S+/g, " ");
+  const withoutHeredoc = command.split("<<")[0];
+  const withoutUrls = withoutHeredoc.replace(/\w+:\/\/\S+/g, " ");
   const withoutQuoted = withoutUrls.replace(/"[^"]*"|'[^']*'/g, " ");
   for (const match of withoutQuoted.matchAll(ABSOLUTE_PATH_PATTERN)) {
     const path = match[0];
@@ -94,7 +95,6 @@ export const wrapBashCommand = ({
   command: string;
 }) =>
   [
-    "env",
     `AGENT_BROWSER_SCREENSHOT_DIR=${quote(workspace.testDir)}`,
     `AGENT_BROWSER_DOWNLOAD_PATH=${quote(workspace.testDir)}`,
     "AGENT_BROWSER_CONTENT_BOUNDARIES=true",

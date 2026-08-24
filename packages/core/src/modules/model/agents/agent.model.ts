@@ -5,12 +5,11 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { AgentEventBridge } from "../../service/agentEventBridge.ts";
 import type { SummaryCollector } from "../../service/summaryCollector.ts";
 import { createCustomTools, toolName, ToolRef } from "../../tools/registry.ts";
 import type { StoryStore } from "../../tools/story/stories.ts";
-import { scopeToolCalls } from "../../tools/scope.ts";
+import { scopeToolCalls, type WriteAccess } from "../../tools/scope.ts";
 import type { MessagePublisher } from "../messagePublisher.model.ts";
 import { ModelProvider } from "../providers/modelProvider.model.ts";
 import { Workspace } from "../workspace.model.ts";
@@ -21,8 +20,6 @@ export interface AgentContext {
   storyStore: StoryStore;
   messagePublisher: MessagePublisher;
 }
-
-export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
 interface AgentOptions extends AgentContext {
   runId: string;
@@ -38,7 +35,7 @@ export abstract class Agent {
   abstract readonly name: string;
   abstract readonly tools: readonly ToolRef[];
   readonly maxToolCalls: number = 25;
-  readonly thinkingLevel: ThinkingLevel = DEFAULT_THINKING_LEVEL;
+  readonly writeAccess: WriteAccess = "all";
 
   constructor(options: AgentOptions) {
     this.runId = options.runId;
@@ -49,11 +46,11 @@ export abstract class Agent {
     this.storyStore = options.storyStore;
     this.timeoutMinutes = options.timeoutMinutes ?? 0;
     this.sessionManager = options.sessionManager ?? SessionManager.inMemory();
-    this.systemPrompt = this.withTimeoutPrompt(
-      options.systemPrompt,
+    this.systemPrompt = options.systemPrompt;
+    this.userPrompt = this.withTimeoutPrompt(
+      options.userPrompt,
       this.timeoutMinutes,
     );
-    this.userPrompt = options.userPrompt;
   }
 
   readonly runId: string;
@@ -98,12 +95,12 @@ export abstract class Agent {
       cwd: this.workspace.workspaceDir,
       model: this.modelProvider.model,
       modelRuntime: this.modelProvider.modelRuntime,
+      thinkingLevel: "medium",
       tools: this.tools.map(toolName),
       customTools: this.buildCustomTools(),
       resourceLoader: resourceLoader,
       sessionManager: this.sessionManager,
       settingsManager: SettingsManager.inMemory(),
-      thinkingLevel: this.thinkingLevel,
     });
 
     let promptCompleted = false;
@@ -114,6 +111,7 @@ export abstract class Agent {
         session.agent,
         [this.workspace.workspaceDir, this.workspace.testDir],
         this.maxToolCalls,
+        this.writeAccess,
       );
       await this.prompt(session, iteration, signal);
       promptCompleted = true;
@@ -172,6 +170,10 @@ export abstract class Agent {
     }
     if (timedOut) {
       await session.abort().catch(() => {});
+      return;
     }
+    await this.afterPrompt(session);
   }
+
+  protected async afterPrompt(_session: AgentSession): Promise<void> {}
 }

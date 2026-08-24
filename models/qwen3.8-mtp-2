@@ -1,2 +1,4 @@
 FROM hf.co/unsloth/Qwen3.8-27B-GGUF:Q3_K_S
-PARAMETER draft_num_predict 2 
+PARAMETER draft_num_predict 2
+PARAMETER presence_penalty 0.0
+PARAMETER num_predict 16384

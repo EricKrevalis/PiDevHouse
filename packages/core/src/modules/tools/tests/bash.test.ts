@@ -14,13 +14,13 @@ it("wraps bash with the browser test environment", () => {
     command: "agent-browser screenshot story-1.png",
   });
 
-  assert.match(command, /^env /);
   assert.match(command, /AGENT_BROWSER_SCREENSHOT_DIR='\/output\/run\/test'/);
   assert.match(command, /AGENT_BROWSER_DOWNLOAD_PATH='\/output\/run\/test'/);
   assert.match(
     command,
     /AGENT_BROWSER_ALLOWED_DOMAINS=localhost,127\.0\.0\.1/,
   );
+  assert.match(command, /agent-browser screenshot story-1\.png$/);
 });
 
 it("allows read-only inspection, local checks, and the server", () => {

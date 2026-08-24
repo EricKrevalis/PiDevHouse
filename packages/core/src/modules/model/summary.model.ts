@@ -3,6 +3,15 @@ import type { StoryStatus } from "./story.model.ts";
 export type OutcomeClass =
   "completed" | "incomplete" | "timeout" | "error" | "cancelled";
 
+export type FailureMode =
+  | "none"
+  | "planning"
+  | "dependency"
+  | "recovery"
+  | "timeout"
+  | "execution"
+  | "cancelled";
+
 export interface AgentUsage {
   calls: number;
   inputTokens: number;
@@ -14,11 +23,12 @@ export interface StorySummary {
   id: number;
   title: string;
   status: StoryStatus;
-  reviewScore: number;
-  testScore: number;
   iterations: number;
-  reviewTrajectory: number[];
-  testTrajectory: number[];
+  reviewScore?: number;
+  testScore?: number;
+  reviewTrajectory?: number[];
+  testTrajectory?: number[];
+  blockedReason?: string;
 }
 
 export interface Summary {
@@ -27,9 +37,12 @@ export interface Summary {
   durationSeconds: number;
   request: string;
   outcome: OutcomeClass;
+  failureMode: FailureMode;
+  exitCode: number;
   model: string;
   config: Record<string, string | number | boolean>;
   agents: Record<string, AgentUsage>;
   stories: StorySummary[];
   error?: string;
+  failureDetail?: string;
 }

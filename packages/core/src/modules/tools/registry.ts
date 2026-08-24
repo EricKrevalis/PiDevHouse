@@ -27,6 +27,8 @@ export type Tools = (typeof TOOLS)[keyof typeof TOOLS];
 
 export const STORIES_PATH = "stories.json";
 
+export const AGENTS_PATH = "AGENTS.md";
+
 export type ToolRef =
   | Tools
   | {

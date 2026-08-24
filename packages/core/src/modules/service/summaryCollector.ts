@@ -17,6 +17,7 @@ interface StoryTrack {
 interface RunState {
   agents: Map<string, AgentUsage>;
   tracks: Map<number, StoryTrack>;
+  blockedReasons: Map<number, string>;
 }
 
 type RunMetadata = Omit<Summary, "agents" | "stories"> & {
@@ -24,7 +25,15 @@ type RunMetadata = Omit<Summary, "agents" | "stories"> & {
 };
 
 export class SummaryCollector {
-  private readonly state: RunState = { agents: new Map(), tracks: new Map() };
+  private readonly state: RunState = {
+    agents: new Map(),
+    tracks: new Map(),
+    blockedReasons: new Map(),
+  };
+
+  noteBlocked(params: { storyId: number; reason: string }): void {
+    this.state.blockedReasons.set(params.storyId, params.reason);
+  }
 
   attach(
     agent: Agent,
@@ -95,7 +104,10 @@ export class SummaryCollector {
 
   async writeSummary(runDir: string, metadata: RunMetadata): Promise<void> {
     const { stories, ...run } = metadata;
-    const summary: Summary = { ...run, ...this.collect(this.state, stories) };
+    const summary: Summary = {
+      ...run,
+      ...this.collect(this.state, stories, metadata.config),
+    };
     await writeFile(
       resolve(runDir, "summary.json"),
       `${JSON.stringify(summary, null, 2)}\n`,
@@ -105,21 +117,42 @@ export class SummaryCollector {
   private collect(
     state: RunState,
     stories: Story[],
+    config: RunMetadata["config"],
   ): Pick<Summary, "agents" | "stories"> {
+    const reviewerEnabled = config.reviewerEnabled !== false;
+    const testerEnabled = config.testerEnabled !== false;
+    const agents = Object.fromEntries(state.agents);
+    if (!reviewerEnabled) delete agents.reviewer;
+    if (!testerEnabled) delete agents.tester;
     return {
-      agents: Object.fromEntries(state.agents),
-      stories: stories.map((story) => ({
-        id: story.id,
-        title: story.title,
-        status: story.status,
-        reviewScore: story.reviewResult.score,
-        testScore: story.testResult.score,
-        ...(state.tracks.get(story.id) ?? {
+      agents,
+      stories: stories.map((story) => {
+        const track = state.tracks.get(story.id) ?? {
           iterations: 0,
           reviewTrajectory: [],
           testTrajectory: [],
-        }),
-      })),
+        };
+        const blockedReason = state.blockedReasons.get(story.id);
+        return {
+          id: story.id,
+          title: story.title,
+          status: story.status,
+          iterations: track.iterations,
+          ...(blockedReason ? { blockedReason } : {}),
+          ...(reviewerEnabled
+            ? {
+                reviewScore: story.reviewResult.score,
+                reviewTrajectory: track.reviewTrajectory,
+              }
+            : {}),
+          ...(testerEnabled
+            ? {
+                testScore: story.testResult.score,
+                testTrajectory: track.testTrajectory,
+              }
+            : {}),
+        };
+      }),
     };
   }
 }

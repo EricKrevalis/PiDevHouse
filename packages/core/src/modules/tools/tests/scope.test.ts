@@ -10,6 +10,7 @@ import type {
 
 vi.mock("../registry.ts", () => ({
   STORIES_PATH: "stories.json",
+  AGENTS_PATH: "AGENTS.md",
   TOOLS: {
     read: "read",
     write: "write",
@@ -30,13 +31,21 @@ type Hook = (
 const context = (name: string, path: string): BeforeToolCallContext =>
   ({ toolCall: { name }, args: { path } }) as unknown as BeforeToolCallContext;
 
-function scoped(roots: string | string[]): {
+function scoped(
+  roots: string | string[],
+  writeAccess?: "all" | "notes",
+): {
   beforeToolCall: Hook | undefined;
 } {
   const agent: { beforeToolCall: Hook | undefined } = {
     beforeToolCall: undefined,
   };
-  scopeToolCalls(agent, Array.isArray(roots) ? roots : [roots], 25);
+  scopeToolCalls(
+    agent,
+    Array.isArray(roots) ? roots : [roots],
+    25,
+    writeAccess,
+  );
   return agent;
 }
 
@@ -98,4 +107,13 @@ it("blocks tool calls beyond the configured limit", async () => {
   assert.equal(await hook(context("read", "src/a.ts")), undefined);
   assert.equal(await hook(context("read", "src/b.ts")), undefined);
   assert.equal((await hook(context("read", "src/c.ts")))?.block, true);
+});
+
+it("notes-only write access allows AGENTS.md and blocks other writes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pidev-"));
+  const hook = scoped(root, "notes").beforeToolCall!;
+
+  assert.equal(await hook(context("edit", "AGENTS.md")), undefined);
+  assert.equal((await hook(context("write", "src/index.html")))?.block, true);
+  assert.equal((await hook(context("write", "stories.json")))?.block, true);
 });

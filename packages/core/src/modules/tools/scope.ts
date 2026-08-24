@@ -12,7 +12,7 @@ import {
   resolve,
   sep,
 } from "node:path";
-import { STORIES_PATH, TOOLS } from "./registry.ts";
+import { STORIES_PATH, AGENTS_PATH, TOOLS } from "./registry.ts";
 
 const PATH_TOOLS = new Set<string>([
   TOOLS.read,
@@ -53,10 +53,13 @@ async function isScopedPath(root: string, input: string): Promise<boolean> {
   return false;
 }
 
+export type WriteAccess = "all" | "notes";
+
 export function scopeToolCalls(
   agent: Pick<Agent, "beforeToolCall" | "afterToolCall">,
   roots: readonly string[],
   maxToolCalls: number,
+  writeAccess: WriteAccess = "all",
 ): void {
   const originalBefore = agent.beforeToolCall;
   const originalAfter = agent.afterToolCall;
@@ -95,6 +98,17 @@ export function scopeToolCalls(
         return {
           block: true,
           reason: `${STORIES_PATH} may only be changed with the write_stories tool`,
+        };
+      }
+      if (
+        path &&
+        writeAccess === "notes" &&
+        WRITE_TOOLS.has(ctx.toolCall.name) &&
+        basename(String(path)) !== AGENTS_PATH
+      ) {
+        return {
+          block: true,
+          reason: `Writes are limited to ${AGENTS_PATH}; record environment lessons there`,
         };
       }
     }

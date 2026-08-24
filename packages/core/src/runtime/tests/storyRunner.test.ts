@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { it, vi } from "vitest";
 import type { AgentContext } from "../../modules/model/agents/agent.model.ts";
 import { Config } from "../../modules/model/config.model.ts";
+import type { Message } from "../../modules/model/message.model.ts";
 import type { ModelProvider } from "../../modules/model/providers/modelProvider.model.ts";
 import type { Story } from "../../modules/model/story.model.ts";
 import type { Workspace } from "../../modules/model/workspace.model.ts";
@@ -13,6 +14,8 @@ import { StoryStore } from "../../modules/tools/story/stories.ts";
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   SessionManager: { create: () => ({}), inMemory: () => ({}) },
 }));
+
+const mocks = vi.hoisted(() => ({ testerSilent: false }));
 
 vi.mock("../../modules/agents/developer.agent.ts", () => ({
   DeveloperAgent: class {
@@ -68,6 +71,7 @@ vi.mock("../../modules/agents/tester.agent.ts", () => ({
     }
 
     async run(): Promise<void> {
+      if (mocks.testerSilent) return;
       const state = await this.dependencies.storyStore.read();
       await this.dependencies.storyStore.write(
         (state?.stories ?? []).map((story) =>
@@ -141,7 +145,9 @@ async function testContext(): Promise<{
   };
   const dependencies: AgentContext = {
     eventBridge: {} as AgentContext["eventBridge"],
-    summaryCollector: {} as AgentContext["summaryCollector"],
+    summaryCollector: {
+      noteBlocked: () => {},
+    } as unknown as AgentContext["summaryCollector"],
     storyStore,
     messagePublisher: { publish: () => {} },
   };
@@ -189,4 +195,37 @@ it("sets the terminal status when the test passes", async () => {
   );
 
   assert.equal((await storyStore.read())?.stories[0].status, "tested");
+});
+
+it("blocks a silent tester on the budget without counting a plateau", async () => {
+  const { dependencies, storyStore, workspace } = await testContext();
+  const events: Message[] = [];
+  const publish = (message: Message): void => {
+    events.push(message);
+  };
+  const publishing: AgentContext = {
+    ...dependencies,
+    messagePublisher: { publish },
+  };
+  mocks.testerSilent = true;
+  try {
+    await new StoryRunner({ publish }).run(
+      1,
+      workspace,
+      modelProvider,
+      Config.from({
+        reviewerEnabled: true,
+        testerEnabled: true,
+        maxIterations: 2,
+      }),
+      "run",
+      publishing,
+    );
+  } finally {
+    mocks.testerSilent = false;
+  }
+
+  assert.equal((await storyStore.read())?.stories[0].status, "blocked");
+  const blocked = events.find((event) => event.type === "story_blocked");
+  assert.match(blocked?.detail ?? "", /2 gate run\(s\) ended without a written verdict/);
 });

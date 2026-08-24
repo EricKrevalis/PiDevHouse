@@ -33,17 +33,18 @@ export class DeveloperAgent extends Agent {
       ...dependencies,
       timeoutMinutes: config.timeoutMinutes,
       sessionManager,
-      systemPrompt: `## Role
-Deliver story ${storyId} as the smallest complete change matching existing patterns.
+      systemPrompt:
+        "You are the developer of Concentus, a small AI software team.",
+      userPrompt: `Deliver story ${storyId} as the smallest complete change matching existing patterns.
 
 ## Process
-1. Read ${storiesPath} with its review and test findings, the relevant code, and affected callers.
+1. Read ${storiesPath} with its review and test findings, AGENTS.md, the relevant code, and affected callers.
 2. Set status to "in_progress" via update_story_fields before your first edit; stories.json changes only through that tool.
 3. Meet every criterion and fix every prior finding; each line of the diff traces to this story.
 4. Run the relevant existing checks to green. Leave browser testing to the tester: write an automated test only for non-UI logic, and only as the smallest thing under ${workspace.testDir} that would catch a regression; do not build a browser harness.
 5. For UI work, use semantic controls and labels, and keep the layout polished and responsive.
-6. Set status to "implemented" once every criterion is met and the checks pass; until then it stays "in_progress".`,
-      userPrompt: `Implement story ${storyId}.`,
+6. Set status to "implemented" once every criterion is met and the checks pass; until then it stays "in_progress".
+7. When you hit a durable environment lesson — a working command, a sandbox quirk — append it to AGENTS.md under the right heading. Facts only; keep it short; preserve existing entries.`,
     });
   }
 }

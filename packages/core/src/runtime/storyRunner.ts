@@ -7,7 +7,7 @@ import type { AgentContext } from "../modules/model/agents/agent.model.ts";
 import type { Config } from "../modules/model/config.model.ts";
 import type { MessagePublisher } from "../modules/model/messagePublisher.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
-import type { Story } from "../modules/model/story.model.ts";
+import type { Story, ValidationResult } from "../modules/model/story.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
 import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { StoryStore } from "../modules/tools/story/stories.ts";
@@ -23,28 +23,23 @@ export function trackPlateau(
   return { best, flat, plateau: flat >= 2 };
 }
 
-async function getValidationScore(
+async function readValidationResult(
   storyStore: StoryStore,
   storyId: number,
   variant: "review" | "test",
-  runId: string,
-  messagePublisher: MessagePublisher,
-): Promise<number> {
+): Promise<ValidationResult | undefined> {
   const story = (await storyStore.read())?.stories.find(
-    (story) => story.id === storyId,
+    (candidate) => candidate.id === storyId,
   );
-  if (!story) return 0;
-  const score =
-    variant === "review" ? story.reviewResult.score : story.testResult.score;
-  messagePublisher.publish({
-    type: "story_score",
-    runId,
-    storyId,
-    variant,
-    score,
-    timestamp: new Date().toISOString(),
-  });
-  return score;
+  if (!story) return undefined;
+  return variant === "review" ? story.reviewResult : story.testResult;
+}
+
+function sameResult(
+  a: ValidationResult | undefined,
+  b: ValidationResult | undefined,
+): boolean {
+  return a?.score === b?.score && a?.note === b?.note;
 }
 
 async function runAgent(
@@ -83,6 +78,7 @@ export class StoryRunner {
   ): Promise<void> {
     const reviewPlateau = { best: -Infinity, flat: 0 };
     const testPlateau = { best: -Infinity, flat: 0 };
+    let silentGates = 0;
     for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
       await runAgent(
         DeveloperAgent,
@@ -96,7 +92,20 @@ export class StoryRunner {
         signal,
       );
 
+      if (!config.reviewerEnabled && !config.testerEnabled) {
+        const done = (await dependencies.storyStore.read())?.stories.find(
+          (item) => item.id === storyId,
+        );
+        if (done?.status === config.terminalStatus) return;
+        continue;
+      }
+
       if (config.reviewerEnabled) {
+        const before = await readValidationResult(
+          dependencies.storyStore,
+          storyId,
+          "review",
+        );
         await runAgent(
           ReviewerAgent,
           storyId,
@@ -108,15 +117,27 @@ export class StoryRunner {
           dependencies,
           signal,
         );
-        const reviewScore = await getValidationScore(
+        const after = await readValidationResult(
           dependencies.storyStore,
           storyId,
           "review",
-          runId,
-          this.messagePublisher,
         );
-        if (reviewScore < config.minScore) {
-          const review = trackPlateau(reviewScore, config.minScore, reviewPlateau);
+        if (after === undefined || sameResult(before, after)) {
+          silentGates++;
+          continue;
+        }
+        this.publishScore({
+          runId,
+          storyId,
+          variant: "review",
+          score: after.score,
+        });
+        if (after.score < config.minScore) {
+          const review = trackPlateau(
+            after.score,
+            config.minScore,
+            reviewPlateau,
+          );
           reviewPlateau.best = review.best;
           reviewPlateau.flat = review.flat;
           if (review.plateau) {
@@ -127,6 +148,7 @@ export class StoryRunner {
               runId,
               this.messagePublisher,
               `review score plateaued at ${review.best} without reaching ${config.minScore}`,
+              dependencies.summaryCollector,
             );
             return;
           }
@@ -142,6 +164,11 @@ export class StoryRunner {
       }
 
       if (config.testerEnabled) {
+        const before = await readValidationResult(
+          dependencies.storyStore,
+          storyId,
+          "test",
+        );
         await runAgent(
           TesterAgent,
           storyId,
@@ -153,34 +180,43 @@ export class StoryRunner {
           dependencies,
           signal,
         );
-        const testScore = await getValidationScore(
+        const after = await readValidationResult(
           dependencies.storyStore,
           storyId,
           "test",
-          runId,
-          this.messagePublisher,
         );
-        if (testScore >= config.minScore) {
-          await dependencies.storyStore.setStatus(
-            storyId,
-            config.terminalStatus,
-          );
-          return;
-        }
-        const test = trackPlateau(testScore, config.minScore, testPlateau);
-        testPlateau.best = test.best;
-        testPlateau.flat = test.flat;
-        if (test.plateau) {
-          await markBlocked(
-            dependencies.storyStore,
-            storyId,
-            config,
+        if (after !== undefined && !sameResult(before, after)) {
+          this.publishScore({
             runId,
-            this.messagePublisher,
-            `test score plateaued at ${test.best} without reaching ${config.minScore}` +
-              (config.reviewerEnabled ? " while the review passed" : ""),
-          );
-          return;
+            storyId,
+            variant: "test",
+            score: after.score,
+          });
+          if (after.score >= config.minScore) {
+            await dependencies.storyStore.setStatus(
+              storyId,
+              config.terminalStatus,
+            );
+            return;
+          }
+          const test = trackPlateau(after.score, config.minScore, testPlateau);
+          testPlateau.best = test.best;
+          testPlateau.flat = test.flat;
+          if (test.plateau) {
+            await markBlocked(
+              dependencies.storyStore,
+              storyId,
+              config,
+              runId,
+              this.messagePublisher,
+              `test score plateaued at ${test.best} without reaching ${config.minScore}` +
+                (config.reviewerEnabled ? " while the review passed" : ""),
+              dependencies.summaryCollector,
+            );
+            return;
+          }
+        } else {
+          silentGates++;
         }
       }
     }
@@ -191,7 +227,28 @@ export class StoryRunner {
       config,
       runId,
       this.messagePublisher,
+      silentGates > 0
+        ? "iteration budget exhausted without passing the enabled gates; " +
+          `${silentGates} gate run(s) ended without a written verdict`
+        : undefined,
+      dependencies.summaryCollector,
     );
+  }
+
+  private publishScore(params: {
+    runId: string;
+    storyId: number;
+    variant: "review" | "test";
+    score: number;
+  }): void {
+    this.messagePublisher.publish({
+      type: "story_score",
+      runId: params.runId,
+      storyId: params.storyId,
+      variant: params.variant,
+      score: params.score,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 
@@ -202,6 +259,7 @@ async function markBlocked(
   runId: string,
   messagePublisher: MessagePublisher,
   reason = "iteration budget exhausted without passing the enabled gates",
+  summaryCollector?: { noteBlocked(params: { storyId: number; reason: string }): void },
 ): Promise<void> {
   const state = await storyStore.read();
   const story = state?.stories.find((item) => item.id === storyId);
@@ -227,6 +285,7 @@ async function markBlocked(
       detail: reason,
       timestamp: new Date().toISOString(),
     });
+    summaryCollector?.noteBlocked({ storyId, reason });
   }
 }
 

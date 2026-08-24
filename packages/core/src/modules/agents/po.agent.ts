@@ -5,7 +5,6 @@ import type { Workspace } from "../model/workspace.model.ts";
 
 export class ProductOwnerAgent extends Agent {
   readonly name = "productOwner";
-  readonly thinkingLevel: ThinkingLevel = "low";
   readonly tools = ["write_stories"] as const;
 
   constructor(
@@ -23,8 +22,9 @@ export class ProductOwnerAgent extends Agent {
       modelProvider,
       ...dependencies,
       timeoutMinutes,
-      systemPrompt: `## Role
-Turn the request into the smallest ordered set of implementation-ready stories.
+      systemPrompt:
+        "You are the product owner of Concentus, a small AI software team.",
+      userPrompt: `Turn the request below into the smallest ordered set of implementation-ready stories.
 
 ## Rules
 1. Include only necessary work; each story states observable behaviour and leaves implementation choices to the developer.
@@ -32,8 +32,10 @@ Turn the request into the smallest ordered set of implementation-ready stories.
 3. Add only real, non-circular prerequisites: a story is independently implementable once its blockers pass.
 4. Use the required fields and initial values exactly: id (positive, unique), title, description, acceptanceCriteria, blockedBy, status "todo", reviewResult { score: 0, note: "" }, testResult { score: 0, note: "" } — the reviewer and tester earn those scores later.
 
-Write only to ${storiesPath} with write_stories. Submit the full list and fix validation errors.`,
-      userPrompt: `Create implementation-ready stories for this request:\n\n${userRequest}`,
+Write only to ${storiesPath} with write_stories. Submit the full list and fix validation errors.
+
+## Request
+${userRequest}`,
     });
   }
 }

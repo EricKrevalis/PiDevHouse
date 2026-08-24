@@ -1,2 +1,4 @@
-FROM hf.co/protoLabsAi/ThinkingCap-Qwen3.6-27B-MTP-GGUF:IQ3_M-MTP 
-PARAMETER draft_num_predict 2 
+FROM hf.co/protoLabsAi/ThinkingCap-Qwen3.6-27B-MTP-GGUF:IQ3_M-MTP
+PARAMETER draft_num_predict 2
+PARAMETER presence_penalty 0.0
+PARAMETER num_predict 16384

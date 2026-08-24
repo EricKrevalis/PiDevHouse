@@ -39,7 +39,9 @@ export class OllamaProvider implements ModelProvider {
           maxTokens: 16_384,
           compat: {
             supportsDeveloperRole: true,
-            thinkingFormat: "openrouter",
+            maxTokensField: "max_tokens",
+            supportsReasoningEffort: true,
+            thinkingFormat: "openai",
           },
         },
       ],
