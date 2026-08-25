@@ -12,7 +12,8 @@ import type { Config } from "./config.model";
 import type { AgentEventBridge } from "../services/agentEventBridge";
 import type { SummaryCollector } from "../services/summaryCollector";
 import type { StoryRepository } from "../repository/story.repository";
-import { createSandboxedBashTool, scopeToolCalls } from "../tools/scope";
+import { createSandboxedBashTool } from "../tools/bash";
+import { scopeToolCalls } from "../tools/scope";
 import type { Path } from "typescript";
 
 export abstract class Agent {
@@ -96,22 +97,30 @@ export abstract class Agent {
     });
     this.session = session;
 
-    this.eventBridge.attach(session, {
-      agent: this.name,
-      storyId,
-      iteration,
-    });
-    this.summaryCollector.attach(this, session, storyId, iteration);
-    scopeToolCalls(
-      session.agent,
-      [resolve(this.workspace, "src"), resolve(this.workspace, "test")],
-      this.config.maxToolCalls,
-    );
+    try {
+      scopeToolCalls(
+        session.agent,
+        [resolve(this.workspace, "src"), resolve(this.workspace, "test")],
+        this.config.maxToolCalls,
+      );
+      this.eventBridge.attach(session, {
+        agent: this.name,
+        storyId,
+        iteration,
+      });
+      this.summaryCollector.attach(this, session, storyId, iteration);
 
-    for (let prompt of this.userPrompts) {
-      await this.prompt(prompt, signal);
+      for (const prompt of this.userPrompts) {
+        await this.prompt(prompt, signal);
+      }
+    } finally {
+      await this.cleanup();
+      session.dispose();
+      if (this.session === session) this.session = undefined;
     }
   }
+
+  protected async cleanup(): Promise<void> {}
 
   async prompt(prompt: string, signal?: AbortSignal): Promise<void> {
     const session = this.session;

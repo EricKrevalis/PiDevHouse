@@ -1,19 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@earendil-works/pi-agent-core";
-import {
-  createSandboxedBashTool,
-  scopeToolCalls,
-} from "../../src/modules/tools/scope";
+import { scopeToolCalls } from "../../src/modules/tools/scope";
 
 const cleanup: string[] = [];
 
@@ -35,7 +25,7 @@ async function createWorkspace() {
 
 async function checkPath(tool: string, path?: string) {
   const { roots } = await createWorkspace();
-  const agent: Pick<Agent, "beforeToolCall"> = {};
+  const agent: Pick<Agent, "beforeToolCall" | "steer"> = { steer: () => {} };
   scopeToolCalls(agent, roots);
   return agent.beforeToolCall?.({
     toolCall: { name: tool },
@@ -51,7 +41,9 @@ describe("scoped tools", () => {
 
     const { root, roots } = await createWorkspace();
     await symlink(homedir(), join(root, "src", "home"));
-    const agent: Pick<Agent, "beforeToolCall"> = {};
+    const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
+      steer: () => {},
+    };
     scopeToolCalls(agent, roots);
     const escaped = await agent.beforeToolCall?.({
       toolCall: { name: "edit" },
@@ -66,7 +58,9 @@ describe("scoped tools", () => {
 
   test("blocks tool calls after the configured limit", async () => {
     const { roots } = await createWorkspace();
-    const agent: Pick<Agent, "beforeToolCall"> = {};
+    const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
+      steer: () => {},
+    };
     scopeToolCalls(agent, roots, 1);
     const context = {
       toolCall: { name: "get_story" },
@@ -79,75 +73,50 @@ describe("scoped tools", () => {
       terminate: true,
     });
   });
+
+  test("warns before the final allowed tool call", async () => {
+    const { roots } = await createWorkspace();
+    const warnings: unknown[] = [];
+    const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
+      steer: (message) => warnings.push(message),
+    };
+    scopeToolCalls(agent, roots, 3);
+    const context = {
+      toolCall: { name: "get_story" },
+      args: { id: 1 },
+    } as never;
+
+    expect(await agent.beforeToolCall?.(context)).toBeUndefined();
+    expect(warnings).toHaveLength(0);
+    expect(await agent.beforeToolCall?.(context)).toBeUndefined();
+    expect(warnings).toEqual([
+      {
+        role: "user",
+        content: "Warning: one tool call remaining (limit 3).",
+        timestamp: expect.any(Number),
+      },
+    ]);
+    expect(await agent.beforeToolCall?.(context)).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+  });
+
+  test("does not count story writes toward the tool limit", async () => {
+    const { roots } = await createWorkspace();
+    const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
+      steer: () => {},
+    };
+    scopeToolCalls(agent, roots, 1);
+    const call = (name: string) =>
+      agent.beforeToolCall?.({ toolCall: { name }, args: {} } as never);
+
+    expect(await call("update_story_status")).toBeUndefined();
+    expect(await call("update_validation_result")).toBeUndefined();
+    expect(await call("create_stories")).toBeUndefined();
+    expect(await call("get_story")).toBeUndefined();
+    expect(await call("get_story")).toMatchObject({
+      block: true,
+      terminate: true,
+    });
+  });
 });
 
-const sandboxTest = Bun.which("bwrap") ? test : test.skip;
-
-sandboxTest("bubblewrap writes src and cannot read host home or environment", async () => {
-  const { root } = await createWorkspace();
-  const secret = join(homedir(), `.pidev-sandbox-secret-${process.pid}`);
-  cleanup.push(secret);
-  await writeFile(secret, "host secret");
-  process.env.PIDEV_SANDBOX_SECRET = "environment secret";
-
-  const tool = createSandboxedBashTool(root);
-  expect(tool.name).toBe("bash");
-  await tool.execute(
-    "write",
-    {
-      command:
-        "printf sandboxed > src/allowed.txt && test -z \"${PIDEV_SANDBOX_SECRET+x}\"",
-    },
-    undefined,
-    undefined,
-    {} as never,
-  );
-  expect(await readFile(join(root, "src", "allowed.txt"), "utf8")).toBe(
-    "sandboxed",
-  );
-  await expect(
-    tool.execute(
-      "read-home",
-      { command: `cat '${secret.replaceAll("'", "'\\''")}'` },
-      undefined,
-      undefined,
-      {} as never,
-    ),
-  ).rejects.toThrow("Command exited with code");
-  await expect(
-    tool.execute(
-      "write-sibling",
-      { command: "mkdir log" },
-      undefined,
-      undefined,
-      {} as never,
-    ),
-  ).rejects.toThrow("Command exited with code");
-});
-
-sandboxTest("bubblewrap honors timeout and AbortSignal", async () => {
-  const { root } = await createWorkspace();
-  const tool = createSandboxedBashTool(root);
-
-  await expect(
-    tool.execute(
-      "timeout",
-      { command: "sleep 5", timeout: 0.05 },
-      undefined,
-      undefined,
-      {} as never,
-    ),
-  ).rejects.toThrow("timed out");
-
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), 50);
-  await expect(
-    tool.execute(
-      "abort",
-      { command: "sleep 5" },
-      controller.signal,
-      undefined,
-      {} as never,
-    ),
-  ).rejects.toThrow("aborted");
-});
