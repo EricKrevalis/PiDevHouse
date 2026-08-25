@@ -1,0 +1,15 @@
+{
+  "name": "core",
+  "module": "src/tui/index.tsx",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.84.3",
+    "@earendil-works/pi-ai": "^0.84.3",
+    "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@opentui/core": "^0.5.8",
+    "@opentui/solid": "^0.5.8",
+    "solid-js": "1.9.12",
+    "zod": "^4.4.3"
+  }
+}
