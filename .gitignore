@@ -10,6 +10,7 @@ Thumbs.db
 # Env / secrets
 .env
 .env.local
+.direnv/
 
 # Python
 __pycache__/
@@ -19,3 +20,6 @@ venv/
 
 # Node
 node_modules/
+
+runs/
+output/
