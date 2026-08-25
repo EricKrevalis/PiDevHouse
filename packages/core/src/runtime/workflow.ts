@@ -86,6 +86,12 @@ export async function run(
       return false;
     }
 
+    messageBus.publish({
+      type: "run_info",
+      totalStories: storyRepository.getStories().length,
+      timestamp: new Date().toISOString(),
+    });
+
     while (storyRepository.getStories().some((s) => s.status !== "tested")) {
       const story = storyRepository.getReadyStory();
       if (!story) {
