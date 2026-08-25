@@ -7,6 +7,7 @@ import type { StoryRepository } from "../../repository/story.repository";
 import type { AgentEventBridge } from "../../services/agentEventBridge";
 import type { SummaryCollector } from "../../services/summaryCollector";
 import { createUpdateStoryStatusTool } from "../../tools/storys/updateStoryStatus";
+import { createBrowserTool } from "../../tools/browser";
 import {
   createUpdateValidationResultTool,
   type ValidationVariant,
@@ -15,6 +16,8 @@ import { createGetStoryTool } from "../../tools/storys/getStory";
 import { loadPrompt } from "../prompt";
 
 export class TesterAgent extends Agent {
+  private browser?: ReturnType<typeof createBrowserTool>;
+
   constructor(
     storyId: number,
     workspace: Path,
@@ -45,12 +48,18 @@ export class TesterAgent extends Agent {
   }
 
   override buildCustomTools(): ToolDefinition[] {
+    this.browser ??= createBrowserTool(this.workspace);
     return [
       createUpdateStoryStatusTool(this.storyRepository),
       createUpdateValidationResultTool(this.storyRepository, [
         "test",
       ] as readonly [ValidationVariant]),
       createGetStoryTool(this.storyRepository),
+      this.browser.tool,
     ];
+  }
+
+  override async cleanup(): Promise<void> {
+    await this.browser?.dispose();
   }
 }

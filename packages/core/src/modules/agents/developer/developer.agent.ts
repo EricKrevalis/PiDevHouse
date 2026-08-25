@@ -24,7 +24,7 @@ export class DeveloperAgent extends Agent {
       name: "developer",
       modelProvider,
       systemPrompt:
-        "You are the developer of Concentus, a small AI software team.",
+        "You are the developer of Concentus, a small AI software team. Implement production changes and unit tests only",
       userPrompts: [
         loadPrompt(new URL("./developerPrompt.md", import.meta.url), {
           storyId: String(storyId),
