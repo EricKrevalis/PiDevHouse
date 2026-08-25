@@ -1,0 +1,105 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { Agent } from "../../src/modules/models/agent.model";
+import { OllamaProvider } from "../../src/modules/models/ollamaProvider.model";
+import { StoryRepository } from "../../src/modules/repository/story.repository";
+import { AgentEventBridge } from "../../src/modules/services/agentEventBridge";
+import { SummaryCollector } from "../../src/modules/services/summaryCollector";
+import { createUpdateStoryStatusTool } from "../../src/modules/tools/storys/updateStoryStatus";
+import type { Config } from "../../src/modules/models/config.model";
+
+const originalOllamaHost = process.env.OLLAMA_HOST;
+const originalOllamaModel = process.env.OLLAMA_MODEL;
+let directory: string;
+
+beforeEach(async () => {
+  directory = await mkdtemp(join(tmpdir(), "pidev-agent-"));
+  await Promise.all([
+    mkdir(join(directory, "src")),
+    mkdir(join(directory, "test")),
+    mkdir(join(directory, "log")),
+  ]);
+});
+
+afterEach(async () => {
+  if (originalOllamaHost === undefined) delete process.env.OLLAMA_HOST;
+  else process.env.OLLAMA_HOST = originalOllamaHost;
+  if (originalOllamaModel === undefined) delete process.env.OLLAMA_MODEL;
+  else process.env.OLLAMA_MODEL = originalOllamaModel;
+  await rm(directory, { recursive: true });
+});
+
+test("activates custom tools in a real Pi session", async () => {
+  process.env.OLLAMA_HOST = "http://localhost:11434";
+  process.env.OLLAMA_MODEL = "test-model";
+  const provider = await OllamaProvider.create();
+  const repository = new StoryRepository(
+    join(directory, "stories.json") as never,
+  );
+  const eventBridge = new AgentEventBridge({ publish: () => {} } as never);
+  const config: Config = {
+    outputDir: directory as never,
+    maxIteration: 1,
+    minScore: 60,
+    maxToolCalls: 1,
+    runTimeoutSeconds: 1,
+  };
+
+  class CustomToolAgent extends Agent {
+    constructor() {
+      super({
+        name: "custom",
+        modelProvider: provider,
+        systemPrompt: "test",
+        userPrompts: [],
+        workspace: directory,
+        tools: [],
+        config,
+        eventBridge,
+        summaryCollector: new SummaryCollector(),
+        storyRepository: repository,
+      });
+    }
+
+    buildCustomTools() {
+      return [createUpdateStoryStatusTool(repository)];
+    }
+  }
+
+  const agent = new CustomToolAgent();
+  await agent.run();
+  const session = (
+    agent as unknown as {
+      session: { getActiveToolNames(): string[] };
+    }
+  ).session;
+  expect(session.getActiveToolNames()).toContain("update_story_status");
+});
+
+test("aborts an active Pi prompt", async () => {
+  let releasePrompt: () => void = () => {};
+  let aborts = 0;
+  const session = {
+    prompt: () =>
+      new Promise<void>((resolve) => {
+        releasePrompt = resolve;
+      }),
+    abort: async () => {
+      aborts++;
+      releasePrompt();
+    },
+  };
+  const controller = new AbortController();
+
+  const pending = Agent.prototype.prompt.call(
+    { session },
+    "test",
+    controller.signal,
+  );
+  controller.abort();
+
+  await expect(pending).rejects.toThrow();
+  expect(aborts).toBe(1);
+});
