@@ -11,7 +11,7 @@ import type { SummaryCollector } from "../modules/services/summaryCollector";
 import type { Path } from "typescript";
 
 type AgentClass = new (...args: any[]) => Agent;
-export type StoryRunOutcome = "completed" | "stalled" | "max_iterations";
+export type StoryRunOutcome = "completed" | "max_iterations";
 
 export async function runStory(
   config: Config,
@@ -22,10 +22,9 @@ export async function runStory(
   eventBridge: AgentEventBridge,
   summaryCollector: SummaryCollector,
   signal?: AbortSignal,
-  agentRunner: typeof runAgent = runAgent,
 ): Promise<StoryRunOutcome> {
   const invoke = (agentClass: AgentClass, iteration: number) =>
-    agentRunner(
+    runAgent(
       agentClass,
       workspace,
       modelProvider,
@@ -38,44 +37,50 @@ export async function runStory(
       signal,
     );
 
+  const validate = async (
+    agentClass: AgentClass,
+    agent: "reviewer" | "tester",
+    variant: "review" | "test",
+    iteration: number,
+  ) => {
+    const previous = storyRepository.getValidationResult(story.id, variant);
+    await invoke(agentClass, iteration);
+    let result = storyRepository.getStory(story.id);
+    // objects are not the same if agent changed it
+    if (storyRepository.getValidationResult(story.id, variant) !== previous) {
+      return result;
+    }
+
+    eventBridge.retry(
+      { agent, storyId: story.id, iteration },
+      `No ${variant} result was recorded. Please update the story before ending.`,
+    );
+    await invoke(agentClass, iteration);
+    result = storyRepository.getStory(story.id);
+    return storyRepository.getValidationResult(story.id, variant) !== previous
+      ? result
+      : undefined;
+  };
+
   for (let iteration = 1; iteration <= config.maxIteration; iteration++) {
     await invoke(DeveloperAgent, iteration);
 
-    const previousReviewResult = storyRepository.getValidationResult(
-      story.id,
+    const reviewed = await validate(
+      ReviewerAgent,
+      "reviewer",
       "review",
-    );
-    const reviewed = await collectResult(
-      await invoke(ReviewerAgent, iteration),
-      storyRepository,
-      story.id,
       iteration,
-      "review",
-      previousReviewResult,
-      signal,
     );
-    if (!reviewed) return "stalled";
     if (
+      !reviewed ||
       reviewed.status !== "approved" ||
       reviewed.reviewResult.score < config.minScore
     )
       continue;
 
-    const previousTestResult = storyRepository.getValidationResult(
-      story.id,
-      "test",
-    );
-    const tested = await collectResult(
-      await invoke(TesterAgent, iteration),
-      storyRepository,
-      story.id,
-      iteration,
-      "test",
-      previousTestResult,
-      signal,
-    );
-    if (!tested) return "stalled";
+    const tested = await validate(TesterAgent, "tester", "test", iteration);
     if (
+      !tested ||
       tested.status !== "tested" ||
       tested.testResult.score < config.minScore
     )
@@ -84,30 +89,4 @@ export async function runStory(
     return "completed";
   }
   return "max_iterations";
-}
-
-async function collectResult(
-  agent: Agent,
-  storyRepository: StoryRepository,
-  storyId: number,
-  iteration: number,
-  variant: "review" | "test",
-  previousResult: Story["reviewResult"] | undefined,
-  signal?: AbortSignal,
-): Promise<Story | undefined> {
-  const field = variant === "test" ? "testResult" : "reviewResult";
-  let story = storyRepository.getStory(storyId);
-  if (!story || story[field] === previousResult) {
-    agent.eventBridge.retry(
-      { agent: agent.name, storyId, iteration },
-      `No fresh ${variant} result was recorded.`,
-    );
-    await agent.prompt(reminder(storyId, variant), signal);
-    story = storyRepository.getStory(storyId);
-  }
-  return story && story[field] !== previousResult ? story : undefined;
-}
-
-function reminder(storyId: number, variant: "review" | "test"): string {
-  return `You finished without recording your result for story ${storyId}. Call update_validation_result with variant "${variant}" now, and update_story_status if it passes, then reply.`;
 }

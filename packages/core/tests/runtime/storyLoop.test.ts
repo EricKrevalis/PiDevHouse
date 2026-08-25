@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,6 +14,12 @@ let directory: string;
 let repository: StoryRepository;
 let story: Story;
 let retries: unknown[];
+
+const agentModel = await import("../../src/modules/models/agent.model");
+mock.module("../../src/modules/models/agent.model", () => ({
+  ...agentModel,
+  runAgent: (...args: any[]) => runAgent(...args),
+}));
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "pidev-story-loop-"));
@@ -60,7 +66,6 @@ async function run() {
     { retry: (...args: unknown[]) => retries.push(args) } as never,
     {} as never,
     undefined,
-    runAgent,
   );
 }
 
@@ -125,7 +130,8 @@ test("allows the same review score after test-driven rework", async () => {
   expect(retries).toEqual([]);
 });
 
-test("stalls after a reviewer ignores its reminder", async () => {
+test("reprompts a silent reviewer until iterations are exhausted", async () => {
+  const calls: string[] = [];
   runAgent = async (
     agentClass,
     _workspace,
@@ -136,6 +142,7 @@ test("stalls after a reviewer ignores its reminder", async () => {
     _summary,
     id,
   ) => {
+    calls.push(agentClass.name);
     if (agentClass.name === "DeveloperAgent") {
       await repo.updateStoryStatus(id, "in_progress");
       await repo.updateStoryStatus(id, "implemented");
@@ -143,6 +150,14 @@ test("stalls after a reviewer ignores its reminder", async () => {
     return fakeAgent(agentClass.name);
   };
 
-  expect(await run()).toBe("stalled");
-  expect(retries).toHaveLength(1);
+  expect(await run()).toBe("max_iterations");
+  expect(calls).toEqual([
+    "DeveloperAgent",
+    "ReviewerAgent",
+    "ReviewerAgent",
+    "DeveloperAgent",
+    "ReviewerAgent",
+    "ReviewerAgent",
+  ]);
+  expect(retries).toHaveLength(2);
 });

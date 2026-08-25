@@ -76,7 +76,7 @@ export class StoryRepository {
   }
 
   private saveToFile(): Promise<void> {
-    const contents = JSON.stringify(this.stories);
+    const contents = `${JSON.stringify(this.stories, null, 2)}\n`;
     this.saveQueue = this.saveQueue
       .catch(() => undefined)
       .then(() => writeFile(this.storiesPath, contents));

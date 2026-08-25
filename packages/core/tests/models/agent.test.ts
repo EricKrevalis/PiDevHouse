@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { Agent } from "../../src/modules/models/agent.model";
 import { OllamaProvider } from "../../src/modules/models/ollamaProvider.model";
 import { StoryRepository } from "../../src/modules/repository/story.repository";
-import { AgentEventBridge } from "../../src/modules/services/agentEventBridge";
 import { SummaryCollector } from "../../src/modules/services/summaryCollector";
 import { createUpdateStoryStatusTool } from "../../src/modules/tools/storys/updateStoryStatus";
 import type { Config } from "../../src/modules/models/config.model";
@@ -38,7 +37,21 @@ test("activates custom tools in a real Pi session", async () => {
   const repository = new StoryRepository(
     join(directory, "stories.json") as never,
   );
-  const eventBridge = new AgentEventBridge({ publish: () => {} } as never);
+  let activeTools: string[] = [];
+  let disposed = false;
+  const eventBridge = {
+    attach(session: {
+      dispose: () => void;
+      getActiveToolNames: () => string[];
+    }) {
+      activeTools = session.getActiveToolNames();
+      const dispose = session.dispose.bind(session);
+      session.dispose = () => {
+        disposed = true;
+        dispose();
+      };
+    },
+  } as never;
   const config: Config = {
     outputDir: directory as never,
     maxIteration: 1,
@@ -70,12 +83,9 @@ test("activates custom tools in a real Pi session", async () => {
 
   const agent = new CustomToolAgent();
   await agent.run();
-  const session = (
-    agent as unknown as {
-      session: { getActiveToolNames(): string[] };
-    }
-  ).session;
-  expect(session.getActiveToolNames()).toContain("update_story_status");
+  expect(activeTools).toContain("update_story_status");
+  expect(disposed).toBe(true);
+  expect((agent as unknown as { session?: unknown }).session).toBeUndefined();
 });
 
 test("aborts an active Pi prompt", async () => {

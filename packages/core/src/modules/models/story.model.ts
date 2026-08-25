@@ -32,7 +32,7 @@ export const storySchema = z.object({
   id: z.number().int().positive(),
   title: z.string(),
   description: z.string(),
-  acceptanceCriteria: z.array(z.string()),
+  acceptanceCriteria: z.array(z.string().min(1)).min(1),
   blockedBy: z.array(z.number().int().positive()),
   status: storyStatusSchema,
   reviewResult: validationResultSchema,

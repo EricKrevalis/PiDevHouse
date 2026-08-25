@@ -18,7 +18,7 @@ test("rejects unusable story ids", () => {
     id: 0,
     title: "Invalid",
     description: "Invalid story",
-    acceptanceCriteria: [],
+    acceptanceCriteria: ["It works"],
     blockedBy: [],
     status: "todo",
     reviewResult: { score: 0, note: "" },
@@ -28,6 +28,21 @@ test("rejects unusable story ids", () => {
   expect(storySchema.safeParse(story).success).toBeFalse();
   expect(
     storySchema.safeParse({ ...story, id: 1, blockedBy: [0] }).success,
+  ).toBeFalse();
+});
+
+test("rejects stories without acceptance criteria", () => {
+  expect(
+    storySchema.safeParse({
+      id: 1,
+      title: "Incomplete",
+      description: "Missing its contract",
+      acceptanceCriteria: [],
+      blockedBy: [],
+      status: "todo",
+      reviewResult: { score: 0, note: "" },
+      testResult: { score: 0, note: "" },
+    }).success,
   ).toBeFalse();
 });
 
@@ -53,7 +68,7 @@ test("rejects duplicate ids in one story batch", async () => {
     id: 1,
     title: "Duplicate",
     description: "Duplicate story",
-    acceptanceCriteria: [],
+    acceptanceCriteria: ["It works"],
     blockedBy: [],
     status: "todo",
   };
@@ -61,4 +76,36 @@ test("rejects duplicate ids in one story batch", async () => {
   await expect(
     (tool.execute as Function)("call", { stories: [story, story] }),
   ).rejects.toThrow("duplicate story ids: 1");
+});
+
+test("creates stories with validation fields in stable order", async () => {
+  directory = await mkdtemp(join(tmpdir(), "pidev-story-tool-"));
+  const repository = new StoryRepository(
+    join(directory, "stories.json") as never,
+  );
+  const tool = createCreateStoriesTool(repository);
+
+  await (tool.execute as Function)("call", {
+    stories: [
+      {
+        status: "todo",
+        blockedBy: [],
+        title: "Stable",
+        acceptanceCriteria: ["It works"],
+        description: "Stable story",
+        id: 1,
+      },
+    ],
+  });
+
+  expect(Object.keys(repository.getStory(1)!)).toEqual([
+    "id",
+    "title",
+    "description",
+    "acceptanceCriteria",
+    "blockedBy",
+    "status",
+    "reviewResult",
+    "testResult",
+  ]);
 });

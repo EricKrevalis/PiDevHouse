@@ -1,7 +1,13 @@
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
-const OLLAMA_PREFLIGHT_TIMEOUT_MS = 10_000;
+type LoadedModel = {
+  name?: string;
+  size?: number;
+  size_vram?: number;
+  size_total?: number;
+  context_length?: number;
+};
 
 export function requireEnv(name: string): string {
   const value = process.env[name];
@@ -14,7 +20,7 @@ export function requireEnv(name: string): string {
 export class OllamaProvider {
   readonly modelRuntime: ModelRuntime;
   readonly model: Model<Api>;
-  private gpuWarned = false;
+  private preflightComplete = false;
 
   private constructor(
     modelRuntime: ModelRuntime,
@@ -67,43 +73,62 @@ export class OllamaProvider {
     return new OllamaProvider(modelRuntime, model, ollamaHost, modelId);
   }
 
-  async warnIfNotOnGpu(signal?: AbortSignal): Promise<string | undefined> {
-    if (this.gpuWarned) return;
-    this.gpuWarned = true;
+  async preflight(signal?: AbortSignal): Promise<string | undefined> {
+    if (this.preflightComplete) return;
     try {
-      const timeoutSignal = AbortSignal.timeout(OLLAMA_PREFLIGHT_TIMEOUT_MS);
-      const fetchSignal = signal
-        ? AbortSignal.any([signal, timeoutSignal])
-        : timeoutSignal;
-      // Load the model into memory first so /api/ps can report the GPU split.
-      await fetch(`${this.ollamaHost}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: this.modelId, keep_alive: "5m" }),
-        signal: fetchSignal,
-      });
-      const data = (await (
-        await fetch(`${this.ollamaHost}/api/ps`, { signal: fetchSignal })
-      ).json()) as {
-        models: {
-          name?: string;
-          size?: number;
-          size_vram?: number;
-          size_total?: number;
-        }[];
-      };
-      const baseName = this.modelId.split(":")[0];
-      const loaded = data.models.find(
-        (m) => m.name?.split(":")[0] === baseName,
-      );
-      if (!loaded) return;
+      let loaded = await this.getLoadedModel(signal);
+      if (!loaded) {
+        const loadResponse = await fetch(`${this.ollamaHost}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: this.modelId,
+            keep_alive: "5m",
+            stream: false,
+          }),
+          signal,
+        });
+        if (!loadResponse.ok) {
+          throw new Error(
+            `Ollama model load returned HTTP ${loadResponse.status}`,
+          );
+        }
+        await loadResponse.arrayBuffer();
+        loaded = await this.getLoadedModel(signal);
+      }
+      if (!loaded) throw new Error(`Ollama model ${this.modelId} is not loaded`);
+      if (loaded.context_length !== this.model.contextWindow) {
+        throw new Error(
+          `Ollama loaded ${this.modelId} with context ${loaded.context_length ?? "unknown"}; expected ${this.model.contextWindow}`,
+        );
+      }
+      this.preflightComplete = true;
       const total = loaded.size_total ?? loaded.size ?? 0;
       const vram = loaded.size_vram ?? 0;
       if (total > 0 && vram >= total) return;
       return `${this.modelId} is not running entirely on the GPU`;
-    } catch {
+    } catch (error) {
       signal?.throwIfAborted();
-      // GPU detection is advisory; network failure or its own timeout is harmless.
+      throw new Error(`Ollama preflight failed for ${this.modelId}`, {
+        cause: error,
+      });
     }
+  }
+
+  private async getLoadedModel(signal?: AbortSignal): Promise<LoadedModel | undefined> {
+    const response = await fetch(`${this.ollamaHost}/api/ps`, {
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Ollama /api/ps returned HTTP ${response.status}`);
+    }
+    const data = (await response.json()) as { models: LoadedModel[] };
+    const baseName = this.modelId.split(":")[0];
+    return data.models.find(
+      (model) =>
+        model.name === this.modelId ||
+        (!this.modelId.includes(":") &&
+          model.name === `${baseName}:latest`),
+    );
   }
 }

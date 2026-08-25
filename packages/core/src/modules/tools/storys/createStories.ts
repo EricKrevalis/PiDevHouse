@@ -32,11 +32,18 @@ export function createCreateStoriesTool(
         );
       }
 
-      const created = params.stories.map((s) => ({
-        ...s,
-        reviewResult: { score: 0, note: "" },
-        testResult: { score: 0, note: "" },
-      }));
+      const created = params.stories.map(
+        ({ id, title, description, acceptanceCriteria, blockedBy, status }) => ({
+          id,
+          title,
+          description,
+          acceptanceCriteria,
+          blockedBy,
+          status,
+          reviewResult: { score: 0, note: "" },
+          testResult: { score: 0, note: "" },
+        }),
+      );
       await storyRepository.createStories(created);
       return toolResult(`Created ${created.length} stories`);
     },

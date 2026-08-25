@@ -12,15 +12,37 @@ export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  /** Average generation throughput: output tokens per second of streaming. */
+  tokensPerSecond: number;
 }
 
 export type OutcomeClass =
   | "completed"
   | "incomplete"
   | "no_ready"
-  | "stalled"
   | "max_iterations"
+  | "timeout"
+  | "cancelled"
   | "error";
+
+export interface SerializedError {
+  name: string;
+  message: string;
+  stack?: string;
+  cause?: SerializedError;
+}
+
+export function serializeError(error: unknown): SerializedError {
+  if (!(error instanceof Error)) {
+    return { name: "Error", message: String(error) };
+  }
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    cause: error.cause === undefined ? undefined : serializeError(error.cause),
+  };
+}
 
 export interface Summary {
   startedAt: string;
@@ -28,7 +50,7 @@ export interface Summary {
   durationSeconds: number;
   request: string;
   outcome: OutcomeClass;
-  error?: string;
+  error?: SerializedError;
   agents: Record<string, AgentUsage>;
   stories: {
     id: number;
@@ -44,6 +66,8 @@ export class SummaryCollector {
   private readonly agents = new Map<string, AgentUsage>();
   private readonly iterations = new Map<number, number>();
   private readonly reasoningChars = new Map<string, number>();
+  private readonly generationStart = new Map<string, number>();
+  private readonly generationMs = new Map<string, number>();
 
   attach(
     agent: Agent,
@@ -62,6 +86,13 @@ export class SummaryCollector {
     storyId: number | undefined,
     iteration: number | undefined,
   ): void {
+    if (
+      event.type === "message_start" &&
+      event.message.role === "assistant"
+    ) {
+      this.generationStart.set(agentName, performance.now());
+      return;
+    }
     if (
       event.type === "message_update" &&
       event.assistantMessageEvent.type === "thinking_delta"
@@ -84,6 +115,14 @@ export class SummaryCollector {
       event.message.usage?.reasoning ??
       Math.ceil((this.reasoningChars.get(agentName) ?? 0) / 4);
     this.reasoningChars.set(agentName, 0);
+    const startedAt = this.generationStart.get(agentName);
+    if (startedAt !== undefined) {
+      this.generationStart.delete(agentName);
+      const generationMs =
+        (this.generationMs.get(agentName) ?? 0) + performance.now() - startedAt;
+      this.generationMs.set(agentName, generationMs);
+      usage.tokensPerSecond = (usage.outputTokens / generationMs) * 1000;
+    }
     this.agents.set(agentName, usage);
 
     if (storyId !== undefined && typeof iteration === "number") {
@@ -100,6 +139,7 @@ export class SummaryCollector {
       inputTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
+      tokensPerSecond: 0,
     };
     this.agents.set(agentName, usage);
     return usage;

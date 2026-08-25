@@ -1,13 +1,19 @@
 import { resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
-import { STORIES_FILE, type Config } from "../modules/models/config.model";
+import {
+  defaultConfig,
+  STORIES_FILE,
+  type Config,
+} from "../modules/models/config.model";
 import type { Path } from "typescript";
 import { OllamaProvider } from "../modules/models/ollamaProvider.model";
 import { ProductOwnerAgent } from "../modules/agents/po/po.agent";
 import { StoryRepository } from "../modules/repository/story.repository";
 import {
+  serializeError,
   SummaryCollector,
   type OutcomeClass,
+  type SerializedError,
 } from "../modules/services/summaryCollector";
 import { AgentEventBridge } from "../modules/services/agentEventBridge";
 import { MessageBus } from "../modules/services/messageBus";
@@ -21,10 +27,15 @@ export async function run(
   onMessage?: (message: Message) => void,
   signal?: AbortSignal,
 ): Promise<boolean> {
-  const timeoutSignal = AbortSignal.timeout(config.runTimeoutSeconds * 1000);
+  const timeoutSignal =
+    config.runTimeoutSeconds && config.runTimeoutSeconds > 0
+      ? AbortSignal.timeout(config.runTimeoutSeconds * 1000)
+      : undefined;
   const runSignal = signal
-    ? AbortSignal.any([signal, timeoutSignal])
-    : timeoutSignal;
+    ? timeoutSignal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : signal
+    : timeoutSignal ?? new AbortController().signal;
   const workspace = await createRunDirectory(request, config.outputDir);
   const ollamaProvider = await OllamaProvider.create();
   const storyRepository = new StoryRepository(
@@ -36,7 +47,7 @@ export async function run(
   const eventBridge = new AgentEventBridge(messageBus);
   const summaryCollector = new SummaryCollector();
   const startedAt = new Date();
-  let error: string | undefined;
+  let error: SerializedError | undefined;
   let outcome: OutcomeClass = "completed";
   const runProductOwner = async () => {
     const productOwner = new ProductOwnerAgent(
@@ -52,7 +63,7 @@ export async function run(
   };
 
   try {
-    const gpuWarning = await ollamaProvider.warnIfNotOnGpu(runSignal);
+    const gpuWarning = await ollamaProvider.preflight(runSignal);
     if (gpuWarning) {
       messageBus.publish({
         type: "warning",
@@ -97,8 +108,21 @@ export async function run(
       }
     }
   } catch (err) {
-    outcome = "error";
-    error = err instanceof Error ? err.message : String(err);
+    const timedOut = timeoutSignal
+      ? runSignal.reason === timeoutSignal.reason
+      : false;
+    outcome = runSignal.aborted
+      ? timedOut
+        ? "timeout"
+        : "cancelled"
+      : "error";
+    error = serializeError(runSignal.aborted ? runSignal.reason : err);
+    if (runSignal.aborted && timedOut) {
+      error.message = `Run exceeded ${config.runTimeoutSeconds}s time budget`;
+    }
+    if (runSignal.aborted && runSignal.reason !== err && !error.cause) {
+      error.cause = serializeError(err);
+    }
     throw err;
   } finally {
     stopTimer();
@@ -116,6 +140,15 @@ export async function run(
   }
 
   return outcome === "completed";
+}
+
+export async function main(
+  request: string,
+  onMessage?: (message: Message) => void,
+  signal?: AbortSignal,
+  config: Config = defaultConfig,
+): Promise<boolean> {
+  return run(config, request, onMessage, signal);
 }
 
 async function createRunDirectory(
@@ -142,7 +175,13 @@ async function createRunDirectory(
     resolve(src, "AGENTS.md"),
     `# Workspace notes
 
-Shared environment lessons for every agent here: working commands, sandbox quirks, tool recipes.`,
+## Environment
+
+- Use Bun. Run all tests with \`bun test test\`. Do not probe for or use Node, npm, or npx.
+
+## Learned notes
+
+Add only new working commands or sandbox quirks below.`,
   );
 
   return workspace as Path;

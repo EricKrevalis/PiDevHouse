@@ -39,7 +39,9 @@ export class AgentEventBridge {
           publish({ type: "agent_end" });
           break;
         case "message_end":
-          publish({ type: "text_end" });
+          if (event.message.role === "assistant") {
+            publish({ type: "text_end" });
+          }
           break;
         case "message_update":
           switch (event.assistantMessageEvent.type) {

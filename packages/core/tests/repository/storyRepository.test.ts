@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { StoryRepository } from "../../src/modules/repository/story.repository";
@@ -27,4 +27,26 @@ test("returns no ready story for a dependency deadlock", async () => {
   ]);
 
   expect(repository.getReadyStory()).toBeUndefined();
+});
+
+test("persists readable, newline-terminated JSON", async () => {
+  directory = await mkdtemp(join(tmpdir(), "pidev-repository-"));
+  const storiesPath = join(directory, "stories.json");
+  const repository = new StoryRepository(storiesPath as never);
+  await repository.createStories([
+    {
+      id: 1,
+      title: "Readable",
+      description: "Readable story",
+      acceptanceCriteria: [],
+      blockedBy: [],
+      status: "todo",
+      reviewResult: { score: 0, note: "" },
+      testResult: { score: 0, note: "" },
+    },
+  ]);
+
+  expect(await readFile(storiesPath, "utf8")).toBe(
+    `${JSON.stringify(repository.getStories(), null, 2)}\n`,
+  );
 });
