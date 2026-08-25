@@ -1,0 +1,27 @@
+{
+  "repeat": 3,
+  "tasks": [
+    {
+      "name": "f06-todo",
+      "request": "Build a dependency-free single-page todo app in one index.html file. Users can add a non-empty task, mark a task complete, delete a task, and filter tasks by all, active, or completed. It must work when opened directly in a browser, with no build step, server, or network access."
+    },
+    {
+      "name": "mars-mission-control",
+      "request": "Build a dependency-free single-page offline Mars mission-control console in one index.html file. It must work when opened directly in a browser, with no build step, server, or network access. Make it visually memorable: a polished dark spacecraft-console interface with clear telemetry cards, mission status indicators, strong typography, responsive layout, and tasteful CSS or inline SVG details that make it feel like a real control room rather than a generic CRUD dashboard. The app must let a controller create a mission incident with a non-empty title, affected subsystem (life support, power, communications, navigation, or habitat), severity (critical, high, medium, or low), and status; move it through explicit states such as detected, diagnosing, stabilized, and resolved; and reject invalid transitions with a visible explanation. Each incident must support repair tasks with a title, crew owner, status, and dependencies, visibly distinguish blocked tasks from ready and completed tasks, and prevent a task from being completed while its dependencies are unfinished. Show a mission overview with active-incident counts by severity and subsystem health indicators, an incident detail view, filtering by status and severity, and an append-only human-readable event timeline for incident and task changes. Persist all data in localStorage so incidents and their timelines survive a reload, provide a clear empty state, and use semantic labeled controls. Keep the implementation focused on these acceptance criteria rather than adding authentication, a backend, networking, drag-and-drop, a real-time server, or external integrations."
+    }
+  ],
+  "variants": [
+    {
+      "name": "baseline",
+      "config": {
+        "maxIteration": 3
+      }
+    },
+    {
+      "name": "one-iteration",
+      "config": {
+        "maxIteration": 1
+      }
+    }
+  ]
+}

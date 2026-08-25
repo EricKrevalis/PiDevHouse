@@ -3,6 +3,9 @@
   "module": "src/tui/index.tsx",
   "type": "module",
   "private": true,
+  "scripts": {
+    "experiment": "bun scripts/experiment.ts"
+  },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.84.3",
     "@earendil-works/pi-ai": "^0.84.3",

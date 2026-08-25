@@ -26,6 +26,7 @@ export async function run(
   request: string,
   onMessage?: (message: Message) => void,
   signal?: AbortSignal,
+  workspaceOverride?: Path,
 ): Promise<boolean> {
   const timeoutSignal =
     config.runTimeoutSeconds && config.runTimeoutSeconds > 0
@@ -36,7 +37,9 @@ export async function run(
       ? AbortSignal.any([signal, timeoutSignal])
       : signal
     : timeoutSignal ?? new AbortController().signal;
-  const workspace = await createRunDirectory(request, config.outputDir);
+  const workspace = workspaceOverride
+    ? await prepareWorkspace(workspaceOverride)
+    : await createRunDirectory(request, config.outputDir);
   const ollamaProvider = await OllamaProvider.create();
   const storyRepository = new StoryRepository(
     resolve(workspace, STORIES_FILE) as Path,
@@ -166,8 +169,10 @@ async function createRunDirectory(
     .replace(" ", "T")
     .replaceAll(":", "-");
   const slug = slugify(request);
-  const workspace = resolve(outputDir, slug, timestamp);
+  return prepareWorkspace(resolve(outputDir, slug, timestamp) as Path);
+}
 
+async function prepareWorkspace(workspace: Path): Promise<Path> {
   const src = resolve(workspace, "src");
   const log = resolve(workspace, "log");
   const test = resolve(workspace, "test");
@@ -193,7 +198,7 @@ Add only new working commands or sandbox quirks below.`,
   return workspace as Path;
 }
 
-function slugify(request: string): string {
+export function slugify(request: string): string {
   return (
     request
       .toLowerCase()
