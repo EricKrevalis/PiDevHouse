@@ -71,6 +71,7 @@ export abstract class Agent {
     storyId?: number,
     iteration?: number,
     signal?: AbortSignal,
+    keepSession = false,
   ): Promise<void> {
     const resourceLoader = new DefaultResourceLoader({
       cwd: this.workspace,
@@ -97,6 +98,7 @@ export abstract class Agent {
     });
     this.session = session;
 
+    let completed = false;
     try {
       scopeToolCalls(
         session.agent,
@@ -113,14 +115,22 @@ export abstract class Agent {
       for (const prompt of this.userPrompts) {
         await this.prompt(prompt, signal);
       }
+      completed = true;
     } finally {
-      await this.cleanup();
-      session.dispose();
-      if (this.session === session) this.session = undefined;
+      if (!keepSession || !completed) await this.close();
     }
   }
 
   protected async cleanup(): Promise<void> {}
+
+  async close(): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+
+    await this.cleanup();
+    session.dispose();
+    if (this.session === session) this.session = undefined;
+  }
 
   async prompt(prompt: string, signal?: AbortSignal): Promise<void> {
     const session = this.session;
@@ -149,6 +159,7 @@ export async function runAgent(
   storyId?: number,
   iteration?: number,
   signal?: AbortSignal,
+  keepSession = false,
 ): Promise<Agent> {
   const agent = new agentClass(
     storyId,
@@ -159,6 +170,6 @@ export async function runAgent(
     eventBridge,
     summaryCollector,
   );
-  await agent.run(storyId, iteration, signal);
+  await agent.run(storyId, iteration, signal, keepSession);
   return agent;
 }

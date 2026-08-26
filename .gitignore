@@ -21,5 +21,8 @@ venv/
 # Node
 node_modules/
 
+# Separate paper repository
+paper/
+
 runs/
 output/

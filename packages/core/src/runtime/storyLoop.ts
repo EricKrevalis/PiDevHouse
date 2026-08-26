@@ -23,7 +23,11 @@ export async function runStory(
   summaryCollector: SummaryCollector,
   signal?: AbortSignal,
 ): Promise<StoryRunOutcome> {
-  const invoke = (agentClass: AgentClass, iteration: number) =>
+  const invoke = (
+    agentClass: AgentClass,
+    iteration: number,
+    keepSession = false,
+  ) =>
     runAgent(
       agentClass,
       workspace,
@@ -35,6 +39,7 @@ export async function runStory(
       story.id,
       iteration,
       signal,
+      keepSession,
     );
 
   const validate = async (
@@ -44,22 +49,29 @@ export async function runStory(
     iteration: number,
   ) => {
     const previous = storyRepository.getValidationResult(story.id, variant);
-    await invoke(agentClass, iteration);
-    let result = storyRepository.getStory(story.id);
-    // objects are not the same if agent changed it
-    if (storyRepository.getValidationResult(story.id, variant) !== previous) {
-      return result;
-    }
+    const agentSession = await invoke(agentClass, iteration, true);
+    try {
+      let result = storyRepository.getStory(story.id);
+      // objects are not the same if agent changed it
+      if (storyRepository.getValidationResult(story.id, variant) !== previous) {
+        return result;
+      }
 
-    eventBridge.retry(
-      { agent, storyId: story.id, iteration },
-      `No ${variant} result was recorded. Please update the story before ending.`,
-    );
-    await invoke(agentClass, iteration);
-    result = storyRepository.getStory(story.id);
-    return storyRepository.getValidationResult(story.id, variant) !== previous
-      ? result
-      : undefined;
+      eventBridge.retry(
+        { agent, storyId: story.id, iteration },
+        `No ${variant} result was recorded. Please update the story before ending.`,
+      );
+      await agentSession.prompt(
+        `You finished without recording your result for story ${story.id}. Call update_validation_result with variant "${variant}" now, and update_story_status if it passes, then reply.`,
+        signal,
+      );
+      result = storyRepository.getStory(story.id);
+      return storyRepository.getValidationResult(story.id, variant) !== previous
+        ? result
+        : undefined;
+    } finally {
+      await agentSession.close?.();
+    }
   };
 
   for (let iteration = 1; iteration <= config.maxIteration; iteration++) {

@@ -14,6 +14,7 @@ let directory: string;
 let repository: StoryRepository;
 let story: Story;
 let retries: unknown[];
+let prompts: string[];
 
 const agentModel = await import("../../src/modules/models/agent.model");
 mock.module("../../src/modules/models/agent.model", () => ({
@@ -36,6 +37,7 @@ beforeEach(async () => {
   };
   await repository.createStories([story]);
   retries = [];
+  prompts = [];
 });
 
 afterEach(() => rm(directory, { recursive: true }));
@@ -52,7 +54,8 @@ function fakeAgent(name: string) {
   return {
     name,
     eventBridge: { retry: (...args: unknown[]) => retries.push(args) },
-    prompt: async () => {},
+    prompt: async (prompt: string) => prompts.push(prompt),
+    close: async () => {},
   };
 }
 
@@ -130,7 +133,7 @@ test("allows the same review score after test-driven rework", async () => {
   expect(retries).toEqual([]);
 });
 
-test("reprompts a silent reviewer until iterations are exhausted", async () => {
+test("reminds a silent reviewer on the same session", async () => {
   const calls: string[] = [];
   runAgent = async (
     agentClass,
@@ -154,10 +157,9 @@ test("reprompts a silent reviewer until iterations are exhausted", async () => {
   expect(calls).toEqual([
     "DeveloperAgent",
     "ReviewerAgent",
-    "ReviewerAgent",
     "DeveloperAgent",
-    "ReviewerAgent",
     "ReviewerAgent",
   ]);
   expect(retries).toHaveLength(2);
+  expect(prompts).toHaveLength(2);
 });
