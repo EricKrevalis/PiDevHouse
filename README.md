@@ -32,6 +32,23 @@ ollama pull qwen3.5:9b
 Set `OLLAMA_MODEL` in `.env`. `OLLAMA_HOST` defaults to
 `http://localhost:11434` when it is not set.
 
+### Ollama server tuning
+
+Flash attention and KV cache quantization are set on the Ollama **server
+process**, not per model. There is no Modelfile line or API field for them,
+only environment variables read once at `ollama serve` startup, so applying
+them requires a full server restart. `jupyter_scripts/install_ollama.sh` and
+`jupyter_scripts/setup_shell.sh` provision a remote Ollama host with these
+already set (`OLLAMA_FLASH_ATTENTION=true`, `OLLAMA_KV_CACHE_TYPE=q8_0`,
+`OLLAMA_CONTEXT_LENGTH=65536`); `setup_shell.sh` also installs them into the
+host's `~/.bashrc` so they persist across restarts.
+
+This roughly doubles usable context at the same VRAM budget (observed on a
+~14.5 GB usable-VRAM host: context ceilings went from 18432/32768 to
+32768/65536 depending on the model) with flat to slightly better decode
+speed. See `docs/model-tuning.md` for per-model context ceilings and tuning
+notes, `docs/todo.md` for pending comparisons.
+
 ## Run
 
 Run the complete workflow directly in the terminal:
