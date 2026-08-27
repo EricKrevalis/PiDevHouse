@@ -52,8 +52,8 @@ export class OllamaProvider {
           reasoning: true,
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 32_768,
-          maxTokens: 16_384,
+          contextWindow: 65_536,
+          maxTokens: 32_768,
           compat: {
             supportsStore: false,
             supportsDeveloperRole: true,
@@ -96,7 +96,8 @@ export class OllamaProvider {
         await loadResponse.arrayBuffer();
         loaded = await this.getLoadedModel(signal);
       }
-      if (!loaded) throw new Error(`Ollama model ${this.modelId} is not loaded`);
+      if (!loaded)
+        throw new Error(`Ollama model ${this.modelId} is not loaded`);
       if (loaded.context_length !== this.model.contextWindow) {
         throw new Error(
           `Ollama loaded ${this.modelId} with context ${loaded.context_length ?? "unknown"}; expected ${this.model.contextWindow}`,
@@ -115,7 +116,9 @@ export class OllamaProvider {
     }
   }
 
-  private async getLoadedModel(signal?: AbortSignal): Promise<LoadedModel | undefined> {
+  private async getLoadedModel(
+    signal?: AbortSignal,
+  ): Promise<LoadedModel | undefined> {
     const response = await fetch(`${this.ollamaHost}/api/ps`, {
       signal,
     });
@@ -127,8 +130,7 @@ export class OllamaProvider {
     return data.models.find(
       (model) =>
         model.name === this.modelId ||
-        (!this.modelId.includes(":") &&
-          model.name === `${baseName}:latest`),
+        (!this.modelId.includes(":") && model.name === `${baseName}:latest`),
     );
   }
 }

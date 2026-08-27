@@ -37,7 +37,7 @@ async function providerWithContext(contextLength: number) {
 }
 
 test("accepts the declared Ollama context", async () => {
-  const provider = await providerWithContext(32_768);
+  const provider = await providerWithContext(65_536);
   expect(await provider.preflight()).toBeUndefined();
 });
 
@@ -61,7 +61,7 @@ test("loads a cold model before checking its context", async () => {
             ? [
                 {
                   name: "test-model:latest",
-                  context_length: 32_768,
+                  context_length: 65_536,
                   size: 1,
                   size_vram: 1,
                 },

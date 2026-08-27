@@ -14,7 +14,7 @@ export const defaultConfig: Config = {
   outputDir: resolve("runs") as Path,
   maxIteration: 3,
   minScore: 60,
-  maxToolCalls: 30,
+  maxToolCalls: 50,
 };
 
 export const AGENT_DIRS = ["src", "test"];

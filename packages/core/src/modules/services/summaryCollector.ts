@@ -19,6 +19,7 @@ export interface AgentUsage {
 export type OutcomeClass =
   | "completed"
   | "incomplete"
+  | "infrastructure"
   | "no_ready"
   | "max_iterations"
   | "timeout"

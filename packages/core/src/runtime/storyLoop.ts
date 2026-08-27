@@ -11,7 +11,11 @@ import type { SummaryCollector } from "../modules/services/summaryCollector";
 import type { Path } from "typescript";
 
 type AgentClass = new (...args: any[]) => Agent;
-export type StoryRunOutcome = "completed" | "max_iterations";
+export type StoryRunOutcome =
+  | "completed"
+  | "incomplete"
+  | "infrastructure"
+  | "max_iterations";
 
 export async function runStory(
   config: Config,
@@ -75,7 +79,24 @@ export async function runStory(
   };
 
   for (let iteration = 1; iteration <= config.maxIteration; iteration++) {
-    await invoke(DeveloperAgent, iteration);
+    const developer = await invoke(DeveloperAgent, iteration, true);
+    try {
+      if (storyRepository.getStory(story.id)?.status !== "implemented") {
+        eventBridge.retry(
+          { agent: "developer", storyId: story.id, iteration },
+          "Story was not finalized as implemented.",
+        );
+        await developer.prompt(
+          `Finish story ${story.id} now. If the implementation and checks are complete, call update_story_status with "implemented"; otherwise leave it "in_progress", then reply.`,
+          signal,
+        );
+      }
+    } finally {
+      await developer.close?.();
+    }
+    if (storyRepository.getStory(story.id)?.status !== "implemented") {
+      return "incomplete";
+    }
 
     const reviewed = await validate(
       ReviewerAgent,
@@ -83,20 +104,15 @@ export async function runStory(
       "review",
       iteration,
     );
-    if (
-      !reviewed ||
-      reviewed.status !== "approved" ||
-      reviewed.reviewResult.score < config.minScore
-    )
-      continue;
+    if (!reviewed) return "incomplete";
+    if (reviewed.reviewResult.score < config.minScore) continue;
+    if (reviewed.status !== "approved") return "incomplete";
 
     const tested = await validate(TesterAgent, "tester", "test", iteration);
-    if (
-      !tested ||
-      tested.status !== "tested" ||
-      tested.testResult.score < config.minScore
-    )
-      continue;
+    if (!tested) return "incomplete";
+    if (tested.testResult.score === -1) return "infrastructure";
+    if (tested.testResult.score < config.minScore) continue;
+    if (tested.status !== "tested") return "incomplete";
 
     return "completed";
   }

@@ -133,7 +133,7 @@ test("allows the same review score after test-driven rework", async () => {
   expect(retries).toEqual([]);
 });
 
-test("reminds a silent reviewer on the same session", async () => {
+test("stops before testing when a reviewer does not finalize", async () => {
   const calls: string[] = [];
   runAgent = async (
     agentClass,
@@ -153,13 +153,54 @@ test("reminds a silent reviewer on the same session", async () => {
     return fakeAgent(agentClass.name);
   };
 
-  expect(await run()).toBe("max_iterations");
+  expect(await run()).toBe("incomplete");
   expect(calls).toEqual([
     "DeveloperAgent",
     "ReviewerAgent",
-    "DeveloperAgent",
-    "ReviewerAgent",
   ]);
-  expect(retries).toHaveLength(2);
-  expect(prompts).toHaveLength(2);
+  expect(retries).toHaveLength(1);
+  expect(prompts).toHaveLength(1);
+});
+
+test("gives a silent developer one finalization prompt", async () => {
+  const calls: string[] = [];
+  runAgent = async (agentClass) => {
+    calls.push(agentClass.name);
+    return fakeAgent(agentClass.name);
+  };
+
+  expect(await run()).toBe("incomplete");
+  expect(calls).toEqual(["DeveloperAgent"]);
+  expect(retries).toHaveLength(1);
+  expect(prompts[0]).toContain('update_story_status with "implemented"');
+});
+
+test("classifies unverifiable browser testing as infrastructure", async () => {
+  runAgent = async (
+    agentClass,
+    _workspace,
+    _model,
+    _config,
+    repo,
+    _events,
+    _summary,
+    id,
+  ) => {
+    if (agentClass.name === "DeveloperAgent") {
+      await repo.updateStoryStatus(id, "in_progress");
+      await repo.updateStoryStatus(id, "implemented");
+    } else if (agentClass.name === "ReviewerAgent") {
+      await repo.updateValidationResult(id, { score: 100, note: "" }, "review");
+      await repo.updateStoryStatus(id, "approved");
+    } else {
+      await repo.updateValidationResult(
+        id,
+        { score: -1, note: "browser unavailable" },
+        "test",
+      );
+    }
+    return fakeAgent(agentClass.name);
+  };
+
+  expect(await run()).toBe("infrastructure");
 });
