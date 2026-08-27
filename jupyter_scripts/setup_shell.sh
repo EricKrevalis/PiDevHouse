@@ -23,7 +23,7 @@ chmod 600 ~/.ssh/id_ed25519
 # ollama
 export PATH="$HOME/.local/bin:$PATH"
 export OLLAMA_MODELS="$HOME/.ollama/models"
-export OLLAMA_HOST="127.0.0.1:11434"
+export OLLAMA_HOST="0.0.0.0:11434"
 export OLLAMA_ORIGINS="*"
 export OLLAMA_FLASH_ATTENTION="true"
 export OLLAMA_KV_CACHE_TYPE="q8_0"

@@ -20,7 +20,7 @@ pkill -f "ollama serve" 2>/dev/null || true
 sleep 1
 
 export OLLAMA_MODELS="$MODEL_DIR"
-export OLLAMA_HOST="127.0.0.1:11434"
+export OLLAMA_HOST="0.0.0.0:11434"
 export OLLAMA_ORIGINS="*"
 export OLLAMA_FLASH_ATTENTION="true"
 export OLLAMA_KV_CACHE_TYPE="q4_0"
