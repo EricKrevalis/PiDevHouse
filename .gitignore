@@ -11,6 +11,12 @@ Thumbs.db
 .env
 .env.local
 
+# Claude Code
+.claude/
+
+# Logs
+*.log
+
 # Python
 __pycache__/
 *.pyc
