@@ -7,7 +7,6 @@ import {
 
 test("expands per-task variants and repeats over shared defaults", () => {
   const spec = {
-    repeat: 2,
     variants: [
       { name: "baseline", config: {} },
       { name: "one-iteration", config: {} },
@@ -16,19 +15,20 @@ test("expands per-task variants and repeats over shared defaults", () => {
       {
         name: "todo",
         request: "build a todo app",
+        repeat: 2,
         variants: [{ name: "baseline", config: {} }],
       },
-      { name: "expenses", request: "build an expenses app" },
+      { name: "expenses", request: "build an expenses app", repeat: 2 },
     ],
   } as never;
 
   expect(trialsForExperiment(spec)).toEqual([
-    { task: { name: "todo", request: "build a todo app", variants: [{ name: "baseline", config: {} }] }, variant: { name: "baseline", config: {} }, run: 1 },
-    { task: { name: "todo", request: "build a todo app", variants: [{ name: "baseline", config: {} }] }, variant: { name: "baseline", config: {} }, run: 2 },
-    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "baseline", config: {} }, run: 1 },
-    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "baseline", config: {} }, run: 2 },
-    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "one-iteration", config: {} }, run: 1 },
-    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "one-iteration", config: {} }, run: 2 },
+    { task: { name: "todo", request: "build a todo app", repeat: 2, variants: [{ name: "baseline", config: {} }] }, variant: { name: "baseline", config: {} }, run: 1 },
+    { task: { name: "todo", request: "build a todo app", repeat: 2, variants: [{ name: "baseline", config: {} }] }, variant: { name: "baseline", config: {} }, run: 2 },
+    { task: { name: "expenses", request: "build an expenses app", repeat: 2 }, variant: { name: "baseline", config: {} }, run: 1 },
+    { task: { name: "expenses", request: "build an expenses app", repeat: 2 }, variant: { name: "baseline", config: {} }, run: 2 },
+    { task: { name: "expenses", request: "build an expenses app", repeat: 2 }, variant: { name: "one-iteration", config: {} }, run: 1 },
+    { task: { name: "expenses", request: "build an expenses app", repeat: 2 }, variant: { name: "one-iteration", config: {} }, run: 2 },
   ]);
 });
 

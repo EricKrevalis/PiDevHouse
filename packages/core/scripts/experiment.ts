@@ -27,13 +27,12 @@ const taskSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
     request: z.string().min(1),
-    repeat: z.number().int().min(1).max(20).optional(),
+    repeat: z.number().int().min(1).max(20),
     variants: z.array(variantSchema).min(1).optional(),
   })
   .strict();
 const specSchema = z
   .object({
-    repeat: z.number().int().min(1).max(20).default(3),
     variants: z.array(variantSchema).min(1),
     tasks: z.array(taskSchema).min(1),
   })
@@ -74,7 +73,7 @@ type Result = {
 export function trialsForExperiment(spec: Spec): Trial[] {
   return spec.tasks.flatMap((task) =>
     (task.variants ?? spec.variants).flatMap((variant) =>
-      Array.from({ length: task.repeat ?? spec.repeat }, (_, index) => ({
+      Array.from({ length: task.repeat }, (_, index) => ({
         task,
         variant,
         run: index + 1,
@@ -376,7 +375,7 @@ async function main(): Promise<void> {
       spec.tasks.flatMap((task) => (task.variants ?? spec.variants).map((v) => v.name)),
     );
     process.stdout.write(
-      `${trialsForExperiment(spec).length} runs: ${spec.tasks.map((task) => `${task.name}(${task.repeat ?? spec.repeat})`).join(", ")} × ${[...variantNames].join(", ")}\n`,
+      `${trialsForExperiment(spec).length} runs: ${spec.tasks.map((task) => `${task.name}(${task.repeat})`).join(", ")} × ${[...variantNames].join(", ")}\n`,
     );
     return;
   }
