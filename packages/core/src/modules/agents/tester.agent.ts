@@ -1,6 +1,7 @@
 import { Agent, type AgentContext } from "../model/agents/agent.model.ts";
 import type { AgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Config } from "../model/config.model.ts";
+import type { ValidationResult } from "../model/story.model.ts";
 import { ModelProvider } from "../model/providers/modelProvider.model.ts";
 import { Workspace } from "../model/workspace.model.ts";
 import { TOOLS } from "../tools/registry.ts";
@@ -21,6 +22,7 @@ export class TesterAgent extends Agent {
 
   private readonly storyId: number;
   private readonly minScore: number;
+  private testResultBefore?: ValidationResult;
 
   constructor(
     storyId: number,
@@ -57,11 +59,28 @@ export class TesterAgent extends Agent {
     this.minScore = config.minScore;
   }
 
+  override async run(
+    storyId?: number,
+    iteration?: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    this.testResultBefore = (await this.storyStore.read())?.stories.find(
+      (candidate) => candidate.id === this.storyId,
+    )?.testResult;
+    return super.run(storyId, iteration, signal);
+  }
+
   protected override async afterPrompt(session: AgentSession): Promise<void> {
     const story = (await this.storyStore.read())?.stories.find(
       (candidate) => candidate.id === this.storyId,
     );
-    if (story === undefined || story.testResult.score >= 0) return;
+    if (story === undefined) return;
+    const before = this.testResultBefore;
+    const wroteThisTurn =
+      before === undefined ||
+      story.testResult.score !== before.score ||
+      story.testResult.note !== before.note;
+    if (wroteThisTurn) return;
     await session
       .prompt(
         `Your turn ended without writing testResult for story ${this.storyId}. Call update_story_fields now with the outcome of the checks you already ran: score ${this.minScore} or above only when every criterion passed by direct execution, below ${this.minScore} for failed criteria, -1 for unverifiable criteria. Set status to "tested" only when everything passed.`,
