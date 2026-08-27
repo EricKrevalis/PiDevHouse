@@ -24,6 +24,17 @@ type RunMetadata = Omit<Summary, "agents" | "stories"> & {
   stories: Story[];
 };
 
+function freshUsage(): AgentUsage {
+  return {
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    totalDurationMs: 0,
+    invocations: 0,
+  };
+}
+
 export class SummaryCollector {
   private readonly state: RunState = {
     agents: new Map(),
@@ -41,7 +52,29 @@ export class SummaryCollector {
     storyId?: number,
     iteration?: number,
   ): void {
-    session.subscribe((event) => this.record(event, agent, storyId, iteration));
+    // start time for THIS invocation, local to this attach() call. the raw
+    // session events carry no timestamp, so we bracket with wall-clock.
+    let invocationStartedAt: number | undefined;
+    session.subscribe((event) => {
+      if (event.type === "agent_start") {
+        invocationStartedAt = Date.now();
+      } else if (event.type === "agent_end") {
+        // skip an unmatched agent_end rather than guess a duration.
+        if (invocationStartedAt !== undefined) {
+          this.recordDuration(agent.name, Date.now() - invocationStartedAt);
+          invocationStartedAt = undefined;
+        }
+      }
+      this.record(event, agent, storyId, iteration);
+    });
+  }
+
+  private recordDuration(agentName: string, durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
+    const usage = this.state.agents.get(agentName) ?? freshUsage();
+    usage.totalDurationMs += durationMs;
+    usage.invocations += 1;
+    this.state.agents.set(agentName, usage);
   }
 
   private record(
@@ -52,12 +85,7 @@ export class SummaryCollector {
   ): void {
     const state = this.state;
     if (event.type === "message_end" && event.message.role === "assistant") {
-      const usage = state.agents.get(agent.name) ?? {
-        calls: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        reasoningTokens: 0,
-      };
+      const usage = state.agents.get(agent.name) ?? freshUsage();
       usage.calls += 1;
       usage.inputTokens += event.message.usage.input;
       usage.outputTokens += event.message.usage.output;
@@ -68,12 +96,7 @@ export class SummaryCollector {
       event.type === "message_update" &&
       event.assistantMessageEvent.type === "thinking_delta"
     ) {
-      const usage = state.agents.get(agent.name) ?? {
-        calls: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        reasoningTokens: 0,
-      };
+      const usage = state.agents.get(agent.name) ?? freshUsage();
       usage.reasoningTokens += Math.ceil(event.assistantMessageEvent.delta.length / 4);
       state.agents.set(agent.name, usage);
     }

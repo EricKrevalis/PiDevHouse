@@ -17,6 +17,10 @@ export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  // wall-clock ms summed across every agent_start->agent_end pair for this
+  // agent role in the run, and the count of those completed pairs.
+  totalDurationMs: number;
+  invocations: number;
 }
 
 export interface StorySummary {
