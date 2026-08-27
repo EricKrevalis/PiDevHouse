@@ -8,6 +8,7 @@ import {
 import type { AgentEventBridge } from "../../service/agentEventBridge.ts";
 import type { SummaryCollector } from "../../service/summaryCollector.ts";
 import { createCustomTools, toolName, ToolRef } from "../../tools/registry.ts";
+import { describeSandbox, isInsideRoot } from "../../tools/bash.ts";
 import type { StoryStore } from "../../tools/story/stories.ts";
 import { scopeToolCalls, type WriteAccess } from "../../tools/scope.ts";
 import type { MessagePublisher } from "../messagePublisher.model.ts";
@@ -47,10 +48,7 @@ export abstract class Agent {
     this.timeoutMinutes = options.timeoutMinutes ?? 0;
     this.sessionManager = options.sessionManager ?? SessionManager.inMemory();
     this.systemPrompt = options.systemPrompt;
-    this.userPrompt = this.withTimeoutPrompt(
-      options.userPrompt,
-      this.timeoutMinutes,
-    );
+    this.userPrompt = options.userPrompt;
   }
 
   readonly runId: string;
@@ -68,13 +66,26 @@ export abstract class Agent {
     return createCustomTools(this.tools, this.workspace, this.storyStore);
   }
 
-  private withTimeoutPrompt(prompt: string, timeoutMinutes: number): string {
-    if (timeoutMinutes <= 0) return prompt;
-    return `${prompt}\n\n## Time budget\nYou have ${timeoutMinutes} minutes for this run. Do the highest-value work first and record your best result before the limit.`;
+  // optional prompt sections the base class appends after the agent's own prompt,
+  // in one place so their text stays in sync with its source (the sandbox roots
+  // plus denylist, the run's time budget). subclasses override to add
+  // agent-specific blocks, e.g. a per-agent tool allowlist, via
+  // `[...super.contextSections(), ...]`.
+  protected contextSections(): string[] {
+    const sections: string[] = [];
+    if (this.tools.some((tool) => toolName(tool) === "bash")) {
+      sections.push(describeSandbox(this.workspace));
+    }
+    if (this.timeoutMinutes > 0) {
+      sections.push(
+        `## Time budget\nYou have ${this.timeoutMinutes} minutes for this run. Do the highest-value work first and record your best result before the limit.`,
+      );
+    }
+    return sections;
   }
 
   protected userPromptFor(iteration?: number): string {
-    return this.userPrompt;
+    return [this.userPrompt, ...this.contextSections()].join("\n\n");
   }
 
   async run(
@@ -83,10 +94,20 @@ export abstract class Agent {
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
+    const workspaceDir = this.workspace.workspaceDir;
     const resourceLoader = new DefaultResourceLoader({
-      cwd: this.workspace.workspaceDir,
-      agentDir: this.workspace.workspaceDir,
+      cwd: workspaceDir,
+      agentDir: workspaceDir,
       systemPrompt: this.systemPrompt,
+      // the loader walks every ancestor of cwd to the filesystem root for
+      // AGENTS.md/CLAUDE.md. the workspace lives deep under the user's home, so
+      // that walk drags in unrelated files (personal CLAUDE.md notes) worth
+      // thousands of tokens. keep only the run's own src/AGENTS.md.
+      agentsFilesOverride: ({ agentsFiles }) => ({
+        agentsFiles: agentsFiles.filter((file) =>
+          isInsideRoot(workspaceDir, file.path),
+        ),
+      }),
     });
     await resourceLoader.reload();
     signal?.throwIfAborted();
