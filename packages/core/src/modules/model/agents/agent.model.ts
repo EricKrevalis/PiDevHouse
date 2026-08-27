@@ -15,6 +15,17 @@ import type { MessagePublisher } from "../messagePublisher.model.ts";
 import { ModelProvider } from "../providers/modelProvider.model.ts";
 import { Workspace } from "../workspace.model.ts";
 
+const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"] as const;
+type ThinkingLevel = (typeof VALID_THINKING_LEVELS)[number];
+
+function thinkingLevelFromEnv(): ThinkingLevel {
+  const raw = process.env.THINKING_LEVEL;
+  if (raw && (VALID_THINKING_LEVELS as readonly string[]).includes(raw)) {
+    return raw as ThinkingLevel;
+  }
+  return "medium";
+}
+
 export interface AgentContext {
   eventBridge: AgentEventBridge;
   summaryCollector: SummaryCollector;
@@ -116,7 +127,7 @@ export abstract class Agent {
       cwd: this.workspace.workspaceDir,
       model: this.modelProvider.model,
       modelRuntime: this.modelProvider.modelRuntime,
-      thinkingLevel: "medium",
+      thinkingLevel: thinkingLevelFromEnv(),
       tools: this.tools.map(toolName),
       customTools: this.buildCustomTools(),
       resourceLoader: resourceLoader,
