@@ -1,4 +1,0 @@
-- message in the tui for total elapsed when run finishes
-- tester all stories all acs 
-- nice looking ui in prompt for recipe run 
-- final run and writing 
