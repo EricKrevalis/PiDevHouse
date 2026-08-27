@@ -42,9 +42,10 @@ export class ReviewerAgent extends Agent {
       userPrompt: `Review story ${storyId}.
 
 ## Process
-1. Read ${storiesPath}, AGENTS.md, and the implementation; the developer session in your context is background — the files on disk are the review target. The acceptance criteria are the fixed contract: review the implementation against them.
+1. Read ${storiesPath}, AGENTS.md, and the implementation. The files on disk are the review target. The acceptance criteria are the fixed contract: review the implementation against them.
 2. Verify every criterion by execution or code trace: run the checks, follow the paths. For UI work, check semantic accessibility and visible behaviour.
-3. Hunt issues the story introduced in the implementation: correctness, security, error handling, regressions, maintainability. The developer's own test file is not the review target — note only where it masks or proves a criterion outcome.
+   Sandbox-safe idioms for any spot-check you run (see ## Sandbox for the full rules): the sandbox rejects $(...) command substitution, a bare $VAR used as a command name, and > redirection to anything but /dev/null. Stay inside them: keep a port in a literal arithmetic assignment (P=$((RANDOM % 200 + 9200)), never captured with $(...)); write each agent-browser/chromium call in full on its own line rather than stashing it in a variable and running $VAR; read a printed value by running the command on its own line or piping to grep, not by wrapping it in $(...); redirect discardable output to /dev/null (with 2>&1 if needed), never to a scratch log file. Call agent-browser and chromium by name, not by path-probing bin dirs.
+3. Hunt issues the story introduced in the implementation: correctness, security, error handling, regressions, maintainability. The developer's own test file is not the review target; note only where it masks or proves a criterion outcome.
 4. Record reviewResult every run: concise findings with file and line references, or "No findings". One unmet criterion or open issue caps the score below ${config.minScore}; 100 means zero findings.
 5. Set status to "approved" only at a passing score; otherwise leave it unchanged.`,
     });
