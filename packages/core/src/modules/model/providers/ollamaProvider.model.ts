@@ -15,9 +15,20 @@ export class OllamaProvider implements ModelProvider {
     this.model = model;
   }
 
+  // real context must match the ollama modelfile's num_ctx for the configured
+  // model, else compaction never fires and ollama silently truncates context
+  private static envInt(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
   static async create(): Promise<OllamaProvider> {
     const ollamaHost = process.env.OLLAMA_HOST ?? "http://localhost:11434";
     const modelId = requireEnv("OLLAMA_MODEL");
+    const contextWindow = OllamaProvider.envInt("OLLAMA_CONTEXT_WINDOW", 32_768);
+    const maxTokens = OllamaProvider.envInt("OLLAMA_MAX_TOKENS", 16_384);
 
     const modelRuntime = await ModelRuntime.create({
       modelsPath: null,
@@ -35,8 +46,8 @@ export class OllamaProvider implements ModelProvider {
           reasoning: true,
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 32_768,
-          maxTokens: 16_384,
+          contextWindow,
+          maxTokens,
           compat: {
             supportsDeveloperRole: true,
             maxTokensField: "max_tokens",
