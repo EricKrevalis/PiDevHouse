@@ -18,7 +18,7 @@ import {
   reduceActivity,
   type ActivityEntry,
 } from "./activity";
-import { spinnerFrames } from "./components/shared";
+import { formatElapsedTime, spinnerFrames } from "./components/shared";
 import {
   tuiView,
   type AgentContext,
@@ -30,6 +30,7 @@ export type TuiRunner = (
   onMessage: (message: Message) => void,
   signal: AbortSignal,
   onStatus?: (status: string) => void,
+  onElapsed?: (seconds: number) => void,
 ) => Promise<boolean>;
 
 type AppProps = {
@@ -55,10 +56,22 @@ export const App = (props: AppProps = {}) => {
   const [inputEl, setInputEl] = createSignal<InputElement>();
   let runController: AbortController | undefined;
   let focusTimer: ReturnType<typeof setTimeout> | undefined;
+  let runStartedAt = 0;
   const run = props.run ?? defaultRun;
   const updateActivity = (
     update: (entries: ActivityEntry[]) => ActivityEntry[],
   ) => setActivity((entries) => limitActivityEntries(update(entries)));
+  const showElapsed = (totalSeconds: number) => {
+    setSeconds(totalSeconds);
+    updateActivity((prev) => [
+      ...prev,
+      {
+        type: "text",
+        text: `total elapsed · ${formatElapsedTime(totalSeconds)}`,
+      },
+      { type: "text", text: "" },
+    ]);
+  };
 
   useKeyboard((key) => {
     if (key.name !== "escape") return;
@@ -94,6 +107,7 @@ export const App = (props: AppProps = {}) => {
       { type: "text", text: "" },
     ]);
     setSeconds(0);
+    runStartedAt = Date.now();
     setRunning(true);
     setCurrentContext({ agent: "starting" });
     setProgressFrame(0);
@@ -104,12 +118,17 @@ export const App = (props: AppProps = {}) => {
     const signal = props.signal
       ? AbortSignal.any([props.signal, controller.signal])
       : controller.signal;
-    run(request, handleMessage, signal, (status) =>
-      updateActivity((prev) => [
-        ...prev,
-        { type: "text", text: status },
-        { type: "text", text: "" },
-      ]),
+    run(
+      request,
+      handleMessage,
+      signal,
+      (status) =>
+        updateActivity((prev) => [
+          ...prev,
+          { type: "text", text: status },
+          { type: "text", text: "" },
+        ]),
+      showElapsed,
     )
       .catch((error) =>
         updateActivity((prev) => [
@@ -121,6 +140,9 @@ export const App = (props: AppProps = {}) => {
         ]),
       )
       .finally(() => {
+        const totalSeconds = Math.floor((Date.now() - runStartedAt) / 1000);
+        showElapsed(totalSeconds);
+        runStartedAt = 0;
         if (runController === controller) runController = undefined;
         setRunning(false);
         setThinking(false);

@@ -3,7 +3,7 @@
   "tasks": [
     {
       "name": "personal-recipe-vault",
-      "request": "Build a polished personal recipe vault where users can discover recipes, add and edit their own, organize favorites and meal plans, and create shopping lists"
+      "request": "Build a polished personal recipe vault with a warm, editorial, responsive interface. Use clear visual hierarchy, attractive typography, a cohesive color palette, recipe imagery or tasteful placeholders, and refined hover, focus, loading, empty, and error states. Users can discover recipes, add and edit their own, organize favorites and meal plans, and create shopping lists. Do not sacrifice functionality for presentation."
     },
     {
       "name": "f06-todo",

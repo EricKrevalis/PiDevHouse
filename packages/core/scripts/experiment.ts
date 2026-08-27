@@ -115,6 +115,7 @@ async function runExperiment(
   signal: AbortSignal,
   onMessage?: (message: Message) => void,
   onStatus?: (status: string) => void,
+  onElapsed?: (seconds: number) => void,
 ): Promise<boolean> {
   const startedAt = new Date().toISOString();
   const runsRoot = resolve(coreRoot, "runs");
@@ -155,6 +156,7 @@ async function runExperiment(
     spec.repeat,
   )) {
       if (signal.aborted) break;
+      const trialStartedAt = Date.now();
       const outputDir = resolve(
         experimentRoot,
         task.name,
@@ -207,6 +209,7 @@ async function runExperiment(
       onStatus?.(
         `[${task.name}/${variant.name} ${runIndex}/${spec.repeat}] ${formatRunStatus(summary, error)}`,
       );
+      onElapsed?.(Math.floor((Date.now() - trialStartedAt) / 1000));
   }
 
   await writeReport(new Date().toISOString());
@@ -369,11 +372,13 @@ async function main(): Promise<void> {
     App({
       initialRequest: `Run tasks: ${spec.tasks.map((task) => task.name).join(", ")}`,
       signal: abort.signal,
-      run: (_request, onMessage, signal, onStatus) =>
-        runExperiment(spec, signal, onMessage, onStatus).then((result) => {
-          success = result;
-          return result;
-        }),
+      run: (_request, onMessage, signal, onStatus, onElapsed) =>
+        runExperiment(spec, signal, onMessage, onStatus, onElapsed).then(
+          (result) => {
+            success = result;
+            return result;
+          },
+        ),
     }),
   );
   if (!success) process.exitCode = abort.signal.aborted ? 130 : 1;
