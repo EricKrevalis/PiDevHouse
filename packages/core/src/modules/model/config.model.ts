@@ -40,7 +40,7 @@ export class Config {
       input.minScore ?? 75,
       input.reviewerEnabled ?? true,
       input.testerEnabled ?? true,
-      input.timeoutMinutes ?? 0,
+      input.timeoutMinutes ?? 20,
     );
   }
 
@@ -64,7 +64,7 @@ export class Config {
       minScore: flagNumber(values, "min-score", 75),
       reviewerEnabled: !flagBool(values, "no-reviewer"),
       testerEnabled: !flagBool(values, "no-tester"),
-      timeoutMinutes: flagNumber(values, "timeout-minutes", 0),
+      timeoutMinutes: flagNumber(values, "timeout-minutes", 20),
     });
   }
 
