@@ -1,5 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
 import { z } from "zod";
 import { defaultConfig, type Config } from "../src/modules/models/config.model";
 import type { Summary } from "../src/modules/services/summaryCollector";
@@ -15,6 +17,33 @@ const configSchema = z
     runTimeoutSeconds: z.number().int().positive().optional(),
   })
   .strict();
+const variantSchema = z
+  .object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+    config: configSchema.default({}),
+  })
+  .strict();
+const taskSchema = z
+  .object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+    request: z.string().min(1),
+    repeat: z.number().int().min(1).max(20).optional(),
+    variants: z.array(variantSchema).min(1).optional(),
+  })
+  .strict();
+const specSchema = z
+  .object({
+    repeat: z.number().int().min(1).max(20).default(3),
+    variants: z.array(variantSchema).min(1),
+    tasks: z.array(taskSchema).min(1),
+  })
+  .strict()
+  .refine(
+    ({ tasks }) => new Set(tasks.map((task) => task.name)).size === tasks.length,
+    { message: "task names must be unique", path: ["tasks"] },
+  );
+
+type Spec = z.infer<typeof specSchema>;
 const workerSchema = z.object({
   request: z.string().min(1),
   config: configSchema
@@ -23,30 +52,11 @@ const workerSchema = z.object({
     .extend({ outputDir: z.string().min(1) }),
   workspace: z.string().min(1).optional(),
 });
-const taskSchema = z
-  .object({
-    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
-    request: z.string().min(1),
-  })
-  .strict();
-const specSchema = z
-  .object({
-    repeat: z.number().int().min(1).max(20).default(3),
-    tasks: z.array(taskSchema).min(1),
-    variants: z
-      .array(
-        z.object({
-          name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
-          config: configSchema.default({}),
-        }).strict(),
-      )
-      .min(1),
-  })
-  .strict()
-  .refine(
-    ({ tasks }) => new Set(tasks.map((task) => task.name)).size === tasks.length,
-    { message: "task names must be unique", path: ["tasks"] },
-  );
+type Trial = {
+  task: Spec["tasks"][number];
+  variant: Spec["variants"][number];
+  run: number;
+};
 
 type Result = {
   task: string;
@@ -61,14 +71,10 @@ type Result = {
   summaryError?: string;
 };
 
-export function trialsForExperiment<T, U>(
-  tasks: readonly T[],
-  variants: readonly U[],
-  repeat: number,
-): { task: T; variant: U; run: number }[] {
-  return tasks.flatMap((task) =>
-    variants.flatMap((variant) =>
-      Array.from({ length: repeat }, (_, index) => ({
+export function trialsForExperiment(spec: Spec): Trial[] {
+  return spec.tasks.flatMap((task) =>
+    (task.variants ?? spec.variants).flatMap((variant) =>
+      Array.from({ length: task.repeat ?? spec.repeat }, (_, index) => ({
         task,
         variant,
         run: index + 1,
@@ -150,11 +156,7 @@ async function runExperiment(
   await writeReport();
 
   let allSuccessful = true;
-  for (const { task, variant, run: runIndex } of trialsForExperiment(
-    spec.tasks,
-    spec.variants,
-    spec.repeat,
-  )) {
+  for (const { task, variant, run: runIndex } of trialsForExperiment(spec)) {
       if (signal.aborted) break;
       const trialStartedAt = Date.now();
       const outputDir = resolve(
@@ -217,6 +219,19 @@ async function runExperiment(
   return allSuccessful && !signal.aborted;
 }
 
+/** Kill a detached child and its whole process group. */
+function killTree(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // already gone
+    }
+  }
+}
+
 async function runTrial(
   request: string,
   config: Config,
@@ -225,22 +240,23 @@ async function runTrial(
   onMessage?: (message: Message) => void,
 ): Promise<{ success: boolean; error?: string }> {
   signal.throwIfAborted();
-  const child = Bun.spawn(
-    [
-      process.execPath,
-      import.meta.path,
-      "--worker",
-      JSON.stringify({ request, config, workspace }),
-    ],
-    { cwd: coreRoot, stdout: "pipe", stderr: "pipe" },
+  const child = spawn(
+    process.execPath,
+    [import.meta.path, "--worker", JSON.stringify({ request, config, workspace })],
+    { cwd: coreRoot, stdio: ["ignore", "pipe", "pipe"], detached: true },
   );
-  const stdout = forwardWorkerMessages(child.stdout, onMessage);
-  const stderr = new Response(child.stderr).text();
+  const stdout = forwardWorkerMessages(
+    Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>,
+    onMessage,
+  );
+  const stderr = new Response(
+    Readable.toWeb(child.stderr!) as ReadableStream<Uint8Array>,
+  ).text();
   let forceKill: ReturnType<typeof setTimeout> | undefined;
   const terminate = () => {
     if (forceKill) return;
-    child.kill();
-    forceKill = setTimeout(() => child.kill(9), 5_000);
+    killTree(child.pid!, "SIGTERM");
+    forceKill = setTimeout(() => killTree(child.pid!, "SIGKILL"), 5_000);
     forceKill.unref();
   };
   const deadline = config.runTimeoutSeconds
@@ -250,7 +266,10 @@ async function runTrial(
   signal.addEventListener("abort", terminate, { once: true });
   if (signal.aborted) terminate();
   try {
-    const exitCode = await child.exited;
+    const exitCode = await new Promise<number | null>((resolveExit, rejectExit) => {
+      child.once("error", rejectExit);
+      child.once("close", (code) => resolveExit(code));
+    });
     await stdout;
     const error = (await stderr).trim();
     return {
@@ -353,8 +372,11 @@ async function main(): Promise<void> {
   const spec = specSchema.parse(JSON.parse(await readFile(specPath, "utf8")));
 
   if (process.argv.includes("--dry-run")) {
+    const variantNames = new Set(
+      spec.tasks.flatMap((task) => (task.variants ?? spec.variants).map((v) => v.name)),
+    );
     process.stdout.write(
-      `${spec.tasks.length * spec.variants.length * spec.repeat} runs: ${spec.tasks.map((task) => task.name).join(", ")} × ${spec.variants.map((variant) => variant.name).join(", ")}\n`,
+      `${trialsForExperiment(spec).length} runs: ${spec.tasks.map((task) => `${task.name}(${task.repeat ?? spec.repeat})`).join(", ")} × ${[...variantNames].join(", ")}\n`,
     );
     return;
   }

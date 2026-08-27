@@ -5,23 +5,30 @@ import {
   trialsForExperiment,
 } from "../scripts/experiment";
 
-test("finishes every task before the next task", () => {
-  const variants = ["baseline", "one-iteration", "short-timeout"];
-  const tasks = ["todo", "expenses"];
+test("expands per-task variants and repeats over shared defaults", () => {
+  const spec = {
+    repeat: 2,
+    variants: [
+      { name: "baseline", config: {} },
+      { name: "one-iteration", config: {} },
+    ],
+    tasks: [
+      {
+        name: "todo",
+        request: "build a todo app",
+        variants: [{ name: "baseline", config: {} }],
+      },
+      { name: "expenses", request: "build an expenses app" },
+    ],
+  } as never;
 
-  expect(trialsForExperiment(tasks, variants, 2)).toEqual([
-    { task: "todo", variant: "baseline", run: 1 },
-    { task: "todo", variant: "baseline", run: 2 },
-    { task: "todo", variant: "one-iteration", run: 1 },
-    { task: "todo", variant: "one-iteration", run: 2 },
-    { task: "todo", variant: "short-timeout", run: 1 },
-    { task: "todo", variant: "short-timeout", run: 2 },
-    { task: "expenses", variant: "baseline", run: 1 },
-    { task: "expenses", variant: "baseline", run: 2 },
-    { task: "expenses", variant: "one-iteration", run: 1 },
-    { task: "expenses", variant: "one-iteration", run: 2 },
-    { task: "expenses", variant: "short-timeout", run: 1 },
-    { task: "expenses", variant: "short-timeout", run: 2 },
+  expect(trialsForExperiment(spec)).toEqual([
+    { task: { name: "todo", request: "build a todo app", variants: [{ name: "baseline", config: {} }] }, variant: { name: "baseline", config: {} }, run: 1 },
+    { task: { name: "todo", request: "build a todo app", variants: [{ name: "baseline", config: {} }] }, variant: { name: "baseline", config: {} }, run: 2 },
+    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "baseline", config: {} }, run: 1 },
+    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "baseline", config: {} }, run: 2 },
+    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "one-iteration", config: {} }, run: 1 },
+    { task: { name: "expenses", request: "build an expenses app" }, variant: { name: "one-iteration", config: {} }, run: 2 },
   ]);
 });
 

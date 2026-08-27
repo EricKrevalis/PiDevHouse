@@ -91,6 +91,55 @@ test("computes average tokens per second from generation time", async () => {
   expect(summary.agents.developer.tokensPerSecond).toBeGreaterThan(0);
 });
 
+test("counts tool calls, compactions, and per-call tokens with ttft", async () => {
+  directory = await mkdtemp(join(tmpdir(), "pidev-summary-"));
+  const collector = new SummaryCollector();
+  const record = (
+    collector as unknown as {
+      record: (...args: unknown[]) => void;
+    }
+  ).record.bind(collector);
+
+  record({ type: "tool_execution_start" }, "tester");
+  record({ type: "tool_execution_start" }, "tester");
+  record({ type: "compaction_end" }, "tester");
+  record({ type: "message_start", message: { role: "assistant" } }, "tester");
+  record(
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "hi" },
+    },
+    "tester",
+  );
+  record(
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 5, output: 2 },
+      },
+    },
+    "tester",
+  );
+  await collector.writeSummary(directory, {
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:00:01.000Z",
+    durationSeconds: 1,
+    request: "test",
+    outcome: "completed",
+    stories: [],
+  });
+
+  const summary = JSON.parse(
+    await readFile(join(directory, "summary.json"), "utf8"),
+  );
+  expect(summary.agents.tester.toolCalls).toBe(2);
+  expect(summary.agents.tester.compactions).toBe(1);
+  expect(summary.agents.tester.callLog).toEqual([
+    { input: 5, output: 2, ttftMs: expect.any(Number) },
+  ]);
+});
+
 test("retains error stacks and causes", () => {
   const cause = new Error("root cause");
   const error = serializeError(new Error("failed", { cause }));

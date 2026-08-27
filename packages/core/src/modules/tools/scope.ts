@@ -47,7 +47,11 @@ export function scopeToolCalls(
   const originalBefore = agent.beforeToolCall;
   let toolCalls = 0;
   let finalizing = false;
-  let warned = false;
+  const warnings = [0.7, 0.85].map((fraction) => ({
+    at: Math.ceil(maxToolCalls * fraction),
+    sent: false,
+    message: `Warning: ${Math.round(fraction * 100)}% of the tool call budget used (${Math.ceil(maxToolCalls * fraction)}/${maxToolCalls}).`,
+  }));
 
   agent.beforeToolCall = async (
     ctx: BeforeToolCallContext,
@@ -78,13 +82,16 @@ export function scopeToolCalls(
           terminate: true,
         };
       }
-      if (!warned && toolCalls === maxToolCalls - 1) {
-        warned = true;
-        agent.steer({
-          role: "user",
-          content: `Warning: one tool call remaining (limit ${maxToolCalls}).`,
-          timestamp: Date.now(),
-        });
+      if (!finalizing) {
+        const warning = warnings.find((w) => !w.sent && toolCalls >= w.at);
+        if (warning) {
+          warning.sent = true;
+          agent.steer({
+            role: "user",
+            content: warning.message,
+            timestamp: Date.now(),
+          });
+        }
       }
     }
     if (PATH_TOOLS.has(ctx.toolCall.name)) {

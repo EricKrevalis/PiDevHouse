@@ -42,7 +42,7 @@ test("session name is stable and path-specific", () => {
   expect(browserSessionName("/a/ws")).not.toBe(browserSessionName("/b/ws"));
 });
 
-test("serve starts a reachable static server and dispose stops it", async () => {
+test("serve exposes the workspace root and dispose stops it", async () => {
   const root = await mkdtemp(join(tmpdir(), "browser-tool-"));
   await mkdir(join(root, "src"), { recursive: true });
   await writeFile(join(root, "src", "index.html"), "<p>hi</p>");
@@ -54,7 +54,8 @@ test("serve starts a reachable static server and dispose stops it", async () => 
   try {
     const served = await execute("t", { action: "serve" });
     const url = served.content[0]!.text.trim();
-    expect(await (await fetch(url)).text()).toContain("hi");
+    const page = await fetch(new URL("src/index.html", url));
+    expect(await page.text()).toContain("hi");
     await dispose();
     await expect(fetch(url, { signal: AbortSignal.timeout(2000) })).rejects.toThrow();
   } finally {

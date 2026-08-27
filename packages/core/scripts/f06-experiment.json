@@ -1,15 +1,5 @@
 {
   "repeat": 3,
-  "tasks": [
-    {
-      "name": "personal-recipe-vault",
-      "request": "Build a polished personal recipe vault with a warm, editorial, responsive interface. Use clear visual hierarchy, attractive typography, a cohesive color palette, recipe imagery or tasteful placeholders, and refined hover, focus, loading, empty, and error states. Users can discover recipes, add and edit their own, organize favorites and meal plans, and create shopping lists. Do not sacrifice functionality for presentation."
-    },
-    {
-      "name": "f06-todo",
-      "request": "Build a dependency-free single-page todo app in one index.html file. Users can add a non-empty task, mark a task complete, delete a task, and filter tasks by all, active, or completed. It must work when opened directly in a browser, with no build step, server, or network access."
-    }
-  ],
   "variants": [
     {
       "name": "baseline",
@@ -22,6 +12,17 @@
       "config": {
         "maxIteration": 1
       }
+    }
+  ],
+  "tasks": [
+    {
+      "name": "personal-recipe-vault",
+      "repeat": 1,
+      "request": "Build a polished personal recipe vault with a warm, editorial, responsive interface. Use clear visual hierarchy, attractive typography, a cohesive color palette, recipe imagery or tasteful placeholders, and refined hover, focus, loading, empty, and error states. Users can discover recipes, add and edit their own, organize favorites and meal plans, and create shopping lists. Do not sacrifice functionality for presentation."
+    },
+    {
+      "name": "f06-todo",
+      "request": "Build a dependency-free single-page todo app in one index.html file. Users can add a non-empty task, mark a task complete, delete a task, and filter tasks by all, active, or completed. It must work when opened directly in a browser, with no build step, server, or network access."
     }
   ]
 }

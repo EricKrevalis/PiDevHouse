@@ -14,6 +14,10 @@ export interface AgentUsage {
   reasoningTokens: number;
   /** Average generation throughput: output tokens per second of streaming. */
   tokensPerSecond: number;
+  toolCalls: number;
+  compactions: number;
+  /** Per model call: token usage and time to first token. */
+  callLog: { input: number; output: number; ttftMs: number | null }[];
 }
 
 export type OutcomeClass =
@@ -68,6 +72,7 @@ export class SummaryCollector {
   private readonly iterations = new Map<number, number>();
   private readonly reasoningChars = new Map<string, number>();
   private readonly generationStart = new Map<string, number>();
+  private readonly firstTokenAt = new Map<string, number>();
   private readonly generationMs = new Map<string, number>();
 
   attach(
@@ -87,22 +92,36 @@ export class SummaryCollector {
     storyId: number | undefined,
     iteration: number | undefined,
   ): void {
+    if (event.type === "compaction_end") {
+      this.usageFor(agentName).compactions += 1;
+      return;
+    }
+    if (event.type === "tool_execution_start") {
+      this.usageFor(agentName).toolCalls += 1;
+      return;
+    }
     if (
       event.type === "message_start" &&
       event.message.role === "assistant"
     ) {
       this.generationStart.set(agentName, performance.now());
+      this.firstTokenAt.delete(agentName);
       return;
     }
-    if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "thinking_delta"
-    ) {
-      this.reasoningChars.set(
-        agentName,
-        (this.reasoningChars.get(agentName) ?? 0) +
-          event.assistantMessageEvent.delta.length,
-      );
+    if (event.type === "message_update") {
+      const kind = event.assistantMessageEvent.type;
+      if (kind === "thinking_delta") {
+        this.firstTokenAt.set(agentName, performance.now());
+        this.reasoningChars.set(
+          agentName,
+          (this.reasoningChars.get(agentName) ?? 0) +
+            event.assistantMessageEvent.delta.length,
+        );
+        return;
+      }
+      if (kind === "text_delta") {
+        this.firstTokenAt.set(agentName, performance.now());
+      }
       return;
     }
     if (event.type !== "message_end" || event.message.role !== "assistant") {
@@ -110,13 +129,24 @@ export class SummaryCollector {
     }
     const usage = this.usageFor(agentName);
     usage.calls += 1;
-    usage.inputTokens += event.message.usage?.input ?? 0;
-    usage.outputTokens += event.message.usage?.output ?? 0;
+    const input = event.message.usage?.input ?? 0;
+    const output = event.message.usage?.output ?? 0;
+    usage.inputTokens += input;
+    usage.outputTokens += output;
     usage.reasoningTokens +=
       event.message.usage?.reasoning ??
       Math.ceil((this.reasoningChars.get(agentName) ?? 0) / 4);
     this.reasoningChars.set(agentName, 0);
     const startedAt = this.generationStart.get(agentName);
+    const firstTokenAt = this.firstTokenAt.get(agentName);
+    usage.callLog.push({
+      input,
+      output,
+      ttftMs:
+        startedAt !== undefined && firstTokenAt !== undefined
+          ? firstTokenAt - startedAt
+          : null,
+    });
     if (startedAt !== undefined) {
       this.generationStart.delete(agentName);
       const generationMs =
@@ -136,11 +166,14 @@ export class SummaryCollector {
 
   private usageFor(agentName: string): AgentUsage {
     const usage = this.agents.get(agentName) ?? {
-      calls: 0,
+      callLog: [],
       inputTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
       tokensPerSecond: 0,
+      toolCalls: 0,
+      compactions: 0,
+      calls: 0,
     };
     this.agents.set(agentName, usage);
     return usage;

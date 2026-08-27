@@ -77,30 +77,36 @@ describe("scoped tools", () => {
     });
   });
 
-  test("warns before the final allowed tool call", async () => {
+  test("warns at 70% and 85% of the budget", async () => {
     const { roots } = await createWorkspace();
     const warnings: unknown[] = [];
     const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
       steer: (message) => warnings.push(message),
     };
-    scopeToolCalls(agent, roots, 3);
+    scopeToolCalls(agent, roots, 10);
     const context = {
       toolCall: { name: "get_story" },
       args: { id: 1 },
     } as never;
 
-    expect(await agent.beforeToolCall?.(context)).toBeUndefined();
-    expect(warnings).toHaveLength(0);
-    expect(await agent.beforeToolCall?.(context)).toBeUndefined();
+    for (let i = 0; i < 7; i++) {
+      await agent.beforeToolCall?.(context);
+    }
     expect(warnings).toEqual([
       {
         role: "user",
-        content: "Warning: one tool call remaining (limit 3).",
+        content: "Warning: 70% of the tool call budget used (7/10).",
         timestamp: expect.any(Number),
       },
     ]);
-    expect(await agent.beforeToolCall?.(context)).toBeUndefined();
-    expect(warnings).toHaveLength(1);
+    await agent.beforeToolCall?.(context);
+    await agent.beforeToolCall?.(context);
+    expect(warnings).toHaveLength(2);
+    expect(warnings[1]).toMatchObject({
+      content: "Warning: 85% of the tool call budget used (9/10).",
+    });
+    await agent.beforeToolCall?.(context);
+    expect(warnings).toHaveLength(2);
   });
 
   test("does not count story writes toward the tool limit", async () => {

@@ -53,7 +53,7 @@ export class OllamaProvider {
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: 65_536,
-          maxTokens: 32_768,
+          maxTokens: 8_192,
           compat: {
             supportsStore: false,
             supportsDeveloperRole: true,

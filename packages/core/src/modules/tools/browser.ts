@@ -1,21 +1,20 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 const MAX_RESULT_CHARS = 12_000;
 const COMMAND_TIMEOUT_MS = 30_000;
+const CLOSE_TIMEOUT_MS = 2_000;
 const SERVER_TIMEOUT_MS = 10_000;
 
 const paramsSchema = z.object({
   action: z
     .enum([
       "serve",
-      "open_file",
       "open",
       "snapshot",
       "click",
@@ -25,7 +24,7 @@ const paramsSchema = z.object({
       "close",
     ])
     .describe(
-      "serve: start a static server for src/ and return its URL. open_file: open src/index.html directly. open: navigate. snapshot: accessibility tree with element refs. click/fill: act on a ref or CSS selector. eval: run JavaScript in the page. screenshot: save criterion evidence into test/. close: stop browser and server.",
+      "serve: start a static server exposing the workspace root (src/ is at /src/) and return its URL. open: navigate. snapshot: accessibility tree with element refs. click/fill: act on a ref or CSS selector. eval: run JavaScript in the page. screenshot: save criterion evidence into test/. close: stop browser and server.",
     ),
   url: z.string().optional().describe("Target URL for open."),
   selector: z
@@ -76,46 +75,63 @@ export function createBrowserTool(workspace: string, storyId: number): {
   capturedCriteria: ReadonlySet<number>;
 } {
   const testDir = resolve(workspace, "test");
-  const srcDir = resolve(workspace, "src");
   mkdirSync(testDir, { recursive: true });
   let server: ChildProcess | undefined;
   let serverUrl: string | undefined;
   const capturedCriteria = new Set<number>();
 
-  const env = (fileAccess = false) => ({
+  const env = () => ({
     ...process.env,
     AGENT_BROWSER_SESSION_NAME: browserSessionName(workspace),
-    AGENT_BROWSER_ALLOWED_DOMAINS: fileAccess
-      ? undefined
-      : "localhost,127.0.0.1",
-    AGENT_BROWSER_ALLOW_FILE_ACCESS: fileAccess ? "true" : undefined,
+    AGENT_BROWSER_ALLOWED_DOMAINS: "localhost,127.0.0.1",
     AGENT_BROWSER_CONTENT_BOUNDARIES: "true",
     AGENT_BROWSER_MAX_OUTPUT: String(MAX_RESULT_CHARS),
     AGENT_BROWSER_SCREENSHOT_DIR: testDir,
     AGENT_BROWSER_DOWNLOAD_PATH: testDir,
   });
 
-  function run(args: string[], fileAccess = false): string {
-    const result = spawnSync("agent-browser", args, {
-      cwd: workspace,
-      env: env(fileAccess),
-      encoding: "utf8",
-      timeout: COMMAND_TIMEOUT_MS,
-      killSignal: "SIGKILL",
-    });
-    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
-    if (result.error) {
-      const error = result.error as NodeJS.ErrnoException;
-      throw new Error(
-        error.code === "ETIMEDOUT"
-          ? `agent-browser timed out after ${COMMAND_TIMEOUT_MS / 1000}s`
-          : error.message,
+  /** Run agent-browser in its own process group so timeouts/aborts kill the whole tree. */
+  function run(args: string[], timeoutMs = COMMAND_TIMEOUT_MS): Promise<string> {
+    return new Promise((resolveRun, rejectRun) => {
+      const child = spawn("agent-browser", args, {
+        cwd: workspace,
+        env: env(),
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      });
+      let output = "";
+      let settled = false;
+      const stop = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          if (child.pid) process.kill(-child.pid, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+        rejectRun(error);
+      };
+      const timer = setTimeout(
+        () => stop(new Error(`agent-browser timed out after ${timeoutMs / 1000}s`)),
+        timeoutMs,
       );
-    }
-    if (result.status !== 0) {
-      throw new Error(output || `agent-browser ${args.join(" ")} failed`);
-    }
-    return output.slice(0, MAX_RESULT_CHARS);
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (output.length < MAX_RESULT_CHARS) output += chunk.toString();
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        if (output.length < MAX_RESULT_CHARS) output += chunk.toString();
+      });
+      child.once("error", (error) => stop(error));
+      child.once("close", (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        const text = output.trim().slice(0, MAX_RESULT_CHARS);
+        if (code === 0) resolveRun(text);
+        else rejectRun(new Error(text || `agent-browser ${args.join(" ")} failed`));
+      });
+    });
   }
 
   async function freePort(): Promise<number> {
@@ -129,10 +145,11 @@ export function createBrowserTool(workspace: string, storyId: number): {
   async function serve(): Promise<string> {
     if (serverUrl) return serverUrl;
     const port = await freePort();
+    // Serve the workspace root so both /index.html and /src/... asset paths resolve.
     server = spawn(
       "python3",
-      ["-m", "http.server", String(port), "--bind", "127.0.0.1", "--directory", srcDir],
-      { cwd: workspace, stdio: "ignore" },
+      ["-m", "http.server", String(port), "--bind", "127.0.0.1", "--directory", workspace],
+      { cwd: workspace, stdio: "ignore", detached: true },
     );
     let serverError: Error | undefined;
     server.once("error", (error) => (serverError = error));
@@ -150,17 +167,45 @@ export function createBrowserTool(workspace: string, storyId: number): {
         await Bun.sleep(200);
       }
     }
-    server.kill();
+    killTree(server.pid);
+    server = undefined;
     serverUrl = undefined;
     throw new Error(`static server did not start within ${SERVER_TIMEOUT_MS / 1000}s`);
   }
 
+  function killTree(pid: number | undefined, signal: "SIGTERM" | "SIGKILL" = "SIGTERM"): void {
+    if (!pid) return;
+    try {
+      process.kill(-pid, signal);
+    } catch {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // already gone
+      }
+    }
+  }
+
+  /** Post-navigation evidence: page errors and failed requests in one round trip. */
+  async function navigationEvidence(): Promise<string> {
+    const [errors, failures] = await Promise.all([
+      run(["network", "errors"]).catch(() => ""),
+      run(["network", "requests", "--status", "400-599"]).catch(() => ""),
+    ]);
+    const parts = [];
+    if (errors) parts.push(`Page errors:\n${errors}`);
+    if (failures) parts.push(`Failed requests:\n${failures}`);
+    return parts.join("\n");
+  }
+
   async function dispose(): Promise<void> {
     serverUrl = undefined;
-    server?.kill();
-    server = undefined;
+    if (server) {
+      killTree(server.pid);
+      server = undefined;
+    }
     try {
-      run(["close"]);
+      await run(["close"], CLOSE_TIMEOUT_MS);
     } catch {
       // daemon already gone
     }
@@ -176,18 +221,6 @@ export function createBrowserTool(workspace: string, storyId: number): {
       if (params.action === "serve") {
         return toolResult(await serve());
       }
-      if (params.action === "open_file") {
-        return toolResult(
-          run(
-            [
-              "--allow-file-access",
-              "open",
-              pathToFileURL(resolve(srcDir, "index.html")).href,
-            ],
-            true,
-          ),
-        );
-      }
       if (params.action === "close") {
         await dispose();
         return toolResult("browser and static server stopped");
@@ -198,11 +231,14 @@ export function createBrowserTool(workspace: string, storyId: number): {
         args.push(
           resolve(testDir, `story-${storyId}-ac-${params.criterion}.png`),
         );
-        const result = run(args);
+        const result = await run(args);
         capturedCriteria.add(params.criterion);
         return toolResult(result);
       }
-      return toolResult(run(args));
+      const result = await run(args);
+      if (params.action !== "open") return toolResult(result);
+      const evidence = await navigationEvidence();
+      return toolResult(evidence ? `${result}\n\n${evidence}` : result);
     },
   };
 
