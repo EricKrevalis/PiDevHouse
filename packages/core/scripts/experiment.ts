@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 import { createApplicationContext } from "../src/application.ts";
 import { Config } from "../src/modules/model/config.model.ts";
 import type { Summary } from "../src/modules/model/summary.model.ts";
+import {
+  aggregateExperimentResults,
+  type Stat,
+} from "../src/modules/service/experimentAggregator.ts";
 import { TerminalView } from "../src/modules/ui/terminalView.tsx";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname ?? ".", "../../..");
@@ -188,10 +192,12 @@ async function main(): Promise<void> {
       if (cancelled) break;
     }
 
+    const aggregates = aggregateExperimentResults(results);
+
     const reportPath = resolve(outputRoot, `experiment-${Date.now()}.json`);
     await writeFile(
       reportPath,
-      `${JSON.stringify({ outputSubdir: subdir, spec: { repeat, variants }, results }, null, 2)}\n`,
+      `${JSON.stringify({ outputSubdir: subdir, spec: { repeat, variants }, results, aggregates }, null, 2)}\n`,
     );
 
     const reportLines = [
@@ -220,6 +226,28 @@ async function main(): Promise<void> {
         `| ${result.variantIndex} | ${result.runIndex} | ${
           summary?.outcome ?? "no_summary"
         } | ${result.exitCode} | ${duration} | ${tested} | ${totals.tokens} | ${totals.calls} |`,
+      );
+    }
+    const cell = (value: number | null, digits = 1): string =>
+      value === null ? "-" : value.toFixed(digits);
+    const stat = (s: Stat, digits = 1): string =>
+      `${cell(s.mean, digits)}±${cell(s.stddev, digits)}`;
+    reportLines.push(
+      "\n## Aggregates (per variant, across repeat runs)\n",
+      "| Variant | Runs | Fail rate | Duration | Tokens | Calls | Dur/inv | Calls/story | Tested |",
+      "|---|---|---|---|---|---|---|---|---|",
+    );
+    for (const aggregate of aggregates) {
+      reportLines.push(
+        `| ${aggregate.variantIndex} | ${aggregate.runCount} | ${
+          aggregate.failureRate.toFixed(2)
+        } | ${stat(aggregate.durationSeconds)}s | ${
+          stat(aggregate.totalTokens, 0)
+        } | ${stat(aggregate.totalCalls)} | ${
+          stat(aggregate.durationPerInvocationMs, 0)
+        }ms | ${
+          aggregate.callsPerStory.toFixed(2)
+        } | ${aggregate.testedStoryRatio.toFixed(2)} |`,
       );
     }
     reportLines.push(`\nExperiment report: ${reportPath}`);
