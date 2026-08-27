@@ -27,10 +27,10 @@ export class ProductOwnerAgent extends Agent {
       userPrompt: `Turn the request below into the smallest ordered set of implementation-ready stories.
 
 ## Rules
-1. Include only necessary work; each story states observable behaviour and leaves implementation choices to the developer.
-2. Make every acceptance criterion pass by black-box execution: seed known state, drive the app, assert the visible result. For UI that is user-visible behaviour; a criterion is ready when the tester can run it without seeing inside the code. Fold enabling work such as layout scaffolding into the feature story that proves it.
+1. Include only necessary work; each story states observable behaviour and leaves implementation choices to the developer. A story is a feature slice, not a code branch: group variations of one behaviour (each arithmetic operator, each field's validation, each CRUD verb on a resource) into one story as separate acceptance criteria, unless a variation ships independently or has distinct business value. Prefer the fewest stories that each stay reviewable and testable as one coherent unit; don't split per operator, a small app is typically a handful of stories, not one per variation.
+2. Make every acceptance criterion pass by black-box execution: seed known state, drive the app, assert the visible result. For UI that is user-visible behaviour; a criterion is ready when the tester can run it without seeing inside the code. Fold enabling work such as layout scaffolding into the feature story that proves it. No story may be pure scaffolding; the first story must itself prove drivable, user-visible behaviour, not merely that controls exist.
 3. Add only real, non-circular prerequisites: a story is independently implementable once its blockers pass.
-4. Use the required fields and initial values exactly: id (positive, unique), title, description, acceptanceCriteria, blockedBy, status "todo", reviewResult { score: 0, note: "" }, testResult { score: 0, note: "" } — the reviewer and tester earn those scores later.
+4. Use the required fields and initial values exactly: id (positive, unique), title, description, acceptanceCriteria, blockedBy, status "todo", reviewResult { score: 0, note: "" }, testResult { score: 0, note: "" }; the reviewer and tester earn those scores later.
 
 Write only to ${storiesPath} with write_stories. Submit the full list and fix validation errors.
 
