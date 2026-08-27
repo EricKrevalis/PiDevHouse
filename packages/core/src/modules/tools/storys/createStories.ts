@@ -17,14 +17,12 @@ export function createCreateStoriesTool(
     name: "create_stories",
     label: "Create stories",
     description:
-      "Append new stories to the repository. Review and test results default to empty.",
+      "Create or replace the complete story plan. Review and test results default to empty.",
     parameters: z.toJSONSchema(paramsSchema),
     async execute(_toolCallId: string, params: z.infer<typeof paramsSchema>) {
       const ids = params.stories.map((story) => story.id);
       const duplicates = ids.filter(
-        (id, index) =>
-          ids.indexOf(id) !== index ||
-          storyRepository.getStory(id) !== undefined,
+        (id, index) => ids.indexOf(id) !== index,
       );
       if (duplicates.length > 0) {
         throw new Error(

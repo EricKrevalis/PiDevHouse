@@ -17,7 +17,7 @@ export class StoryRepository {
   }
 
   async createStories(storys: Story[]) {
-    this.stories = [...this.stories, ...storys];
+    this.stories = storys;
     await this.saveToFile();
   }
 

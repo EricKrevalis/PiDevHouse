@@ -46,14 +46,32 @@ export function scopeToolCalls(
   const workspace = dirname(scopedRoots[0] ?? resolve("."));
   const originalBefore = agent.beforeToolCall;
   let toolCalls = 0;
+  let finalizing = false;
   let warned = false;
 
   agent.beforeToolCall = async (
     ctx: BeforeToolCallContext,
     signal?: AbortSignal,
   ): Promise<BeforeToolCallResult | undefined> => {
-    if (!STORY_WRITE_TOOLS.has(ctx.toolCall.name)) {
+    const isControlCall =
+      STORY_WRITE_TOOLS.has(ctx.toolCall.name) ||
+      (ctx.toolCall.name === "browser" &&
+        (ctx.args as Record<string, unknown>).action === "screenshot");
+    if (!isControlCall) {
       if (++toolCalls > maxToolCalls) {
+        if (!finalizing) {
+          finalizing = true;
+          agent.steer({
+            role: "user",
+            content:
+              "Exploration budget exhausted. Only record evidence and final story updates now.",
+            timestamp: Date.now(),
+          });
+          return {
+            block: true,
+            reason: `Tool call limit (${maxToolCalls}) reached; finalize now`,
+          };
+        }
         return {
           block: true,
           reason: `Tool call limit (${maxToolCalls}) reached`,

@@ -17,6 +17,7 @@ import { loadPrompt } from "../prompt";
 
 export class TesterAgent extends Agent {
   private browser?: ReturnType<typeof createBrowserTool>;
+  private readonly storyId: number;
 
   constructor(
     storyId: number,
@@ -45,12 +46,16 @@ export class TesterAgent extends Agent {
       summaryCollector,
       storyRepository,
     });
+    this.storyId = storyId;
   }
 
   override buildCustomTools(): ToolDefinition[] {
-    this.browser ??= createBrowserTool(this.workspace);
+    this.browser ??= createBrowserTool(this.workspace, this.storyId);
     return [
-      createUpdateStoryStatusTool(this.storyRepository),
+      createUpdateStoryStatusTool(
+        this.storyRepository,
+        this.browser.capturedCriteria,
+      ),
       createUpdateValidationResultTool(this.storyRepository, [
         "test",
       ] as readonly [ValidationVariant]),

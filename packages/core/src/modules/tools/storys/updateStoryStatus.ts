@@ -5,6 +5,7 @@ import type { StoryRepository } from "../../repository/story.repository";
 
 export function createUpdateStoryStatusTool(
   storyRepository: StoryRepository,
+  testedCriteria?: ReadonlySet<number>,
 ): ToolDefinition {
   const paramsSchema = z.object({
     id: z.number().int().positive(),
@@ -20,6 +21,16 @@ export function createUpdateStoryStatusTool(
       const story = storyRepository.getStory(params.id);
       if (!story) {
         throw new Error(`story ${params.id} not found`);
+      }
+      if (params.status === "tested" && testedCriteria) {
+        const missing = story.acceptanceCriteria
+          .map((_, index) => index + 1)
+          .filter((criterion) => !testedCriteria.has(criterion));
+        if (missing.length > 0) {
+          throw new Error(
+            `missing browser screenshots for acceptance criteria: ${missing.join(", ")}`,
+          );
+        }
       }
 
       const applied = await storyRepository.updateStoryStatus(

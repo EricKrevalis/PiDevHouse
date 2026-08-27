@@ -46,7 +46,7 @@ test("serve starts a reachable static server and dispose stops it", async () => 
   const root = await mkdtemp(join(tmpdir(), "browser-tool-"));
   await mkdir(join(root, "src"), { recursive: true });
   await writeFile(join(root, "src", "index.html"), "<p>hi</p>");
-  const { tool, dispose } = createBrowserTool(root);
+  const { tool, dispose } = createBrowserTool(root, 1);
   const execute = tool.execute as unknown as (
     id: string,
     params: BrowserParams,

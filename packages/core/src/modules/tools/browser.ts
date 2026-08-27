@@ -2,17 +2,30 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:net";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 const MAX_RESULT_CHARS = 12_000;
+const COMMAND_TIMEOUT_MS = 30_000;
+const SERVER_TIMEOUT_MS = 10_000;
 
 const paramsSchema = z.object({
   action: z
-    .enum(["serve", "open", "snapshot", "click", "fill", "eval", "screenshot", "close"])
+    .enum([
+      "serve",
+      "open_file",
+      "open",
+      "snapshot",
+      "click",
+      "fill",
+      "eval",
+      "screenshot",
+      "close",
+    ])
     .describe(
-      "serve: start a static server for src/ and return its URL. open: navigate. snapshot: accessibility tree with element refs. click/fill: act on a ref or CSS selector. eval: run JavaScript in the page. screenshot: save full-page PNG into test/. close: stop browser and server.",
+      "serve: start a static server for src/ and return its URL. open_file: open src/index.html directly. open: navigate. snapshot: accessibility tree with element refs. click/fill: act on a ref or CSS selector. eval: run JavaScript in the page. screenshot: save criterion evidence into test/. close: stop browser and server.",
     ),
   url: z.string().optional().describe("Target URL for open."),
   selector: z
@@ -22,7 +35,13 @@ const paramsSchema = z.object({
   value: z
     .string()
     .optional()
-    .describe("Text for fill, JavaScript for eval, optional filename for screenshot."),
+    .describe("Text for fill or JavaScript for eval."),
+  criterion: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Acceptance-criterion number for screenshot."),
 });
 
 export type BrowserParams = z.infer<typeof paramsSchema>;
@@ -51,33 +70,48 @@ export function browserCommand(params: BrowserParams): string[] {
   }
 }
 
-export function createBrowserTool(workspace: string): {
+export function createBrowserTool(workspace: string, storyId: number): {
   tool: ToolDefinition;
   dispose: () => Promise<void>;
+  capturedCriteria: ReadonlySet<number>;
 } {
   const testDir = resolve(workspace, "test");
   const srcDir = resolve(workspace, "src");
   mkdirSync(testDir, { recursive: true });
   let server: ChildProcess | undefined;
   let serverUrl: string | undefined;
+  const capturedCriteria = new Set<number>();
 
-  const env = () => ({
+  const env = (fileAccess = false) => ({
     ...process.env,
     AGENT_BROWSER_SESSION_NAME: browserSessionName(workspace),
-    AGENT_BROWSER_ALLOWED_DOMAINS: "localhost,127.0.0.1",
+    AGENT_BROWSER_ALLOWED_DOMAINS: fileAccess
+      ? undefined
+      : "localhost,127.0.0.1",
+    AGENT_BROWSER_ALLOW_FILE_ACCESS: fileAccess ? "true" : undefined,
     AGENT_BROWSER_CONTENT_BOUNDARIES: "true",
     AGENT_BROWSER_MAX_OUTPUT: String(MAX_RESULT_CHARS),
     AGENT_BROWSER_SCREENSHOT_DIR: testDir,
     AGENT_BROWSER_DOWNLOAD_PATH: testDir,
   });
 
-  function run(args: string[]): string {
+  function run(args: string[], fileAccess = false): string {
     const result = spawnSync("agent-browser", args, {
       cwd: workspace,
-      env: env(),
+      env: env(fileAccess),
       encoding: "utf8",
+      timeout: COMMAND_TIMEOUT_MS,
+      killSignal: "SIGKILL",
     });
     const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+    if (result.error) {
+      const error = result.error as NodeJS.ErrnoException;
+      throw new Error(
+        error.code === "ETIMEDOUT"
+          ? `agent-browser timed out after ${COMMAND_TIMEOUT_MS / 1000}s`
+          : error.message,
+      );
+    }
     if (result.status !== 0) {
       throw new Error(output || `agent-browser ${args.join(" ")} failed`);
     }
@@ -100,15 +134,25 @@ export function createBrowserTool(workspace: string): {
       ["-m", "http.server", String(port), "--bind", "127.0.0.1", "--directory", srcDir],
       { cwd: workspace, stdio: "ignore" },
     );
+    let serverError: Error | undefined;
+    server.once("error", (error) => (serverError = error));
     serverUrl = `http://127.0.0.1:${port}/`;
-    while (true) {
+    const deadline = Date.now() + SERVER_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (serverError) throw serverError;
+      if (server.exitCode !== null) {
+        throw new Error(`static server exited with code ${server.exitCode}`);
+      }
       try {
-        await fetch(serverUrl);
+        await fetch(serverUrl, { signal: AbortSignal.timeout(1000) });
         return serverUrl;
       } catch {
         await Bun.sleep(200);
       }
     }
+    server.kill();
+    serverUrl = undefined;
+    throw new Error(`static server did not start within ${SERVER_TIMEOUT_MS / 1000}s`);
   }
 
   async function dispose(): Promise<void> {
@@ -132,23 +176,37 @@ export function createBrowserTool(workspace: string): {
       if (params.action === "serve") {
         return toolResult(await serve());
       }
+      if (params.action === "open_file") {
+        return toolResult(
+          run(
+            [
+              "--allow-file-access",
+              "open",
+              pathToFileURL(resolve(srcDir, "index.html")).href,
+            ],
+            true,
+          ),
+        );
+      }
       if (params.action === "close") {
         await dispose();
         return toolResult("browser and static server stopped");
       }
       const args = browserCommand(params);
-      if (
-        params.action === "screenshot" &&
-        params.value &&
-        !isAbsolute(params.value)
-      ) {
-        args[args.length - 1] = resolve(testDir, params.value);
+      if (params.action === "screenshot") {
+        if (!params.criterion) throw new Error("screenshot requires criterion");
+        args.push(
+          resolve(testDir, `story-${storyId}-ac-${params.criterion}.png`),
+        );
+        const result = run(args);
+        capturedCriteria.add(params.criterion);
+        return toolResult(result);
       }
       return toolResult(run(args));
     },
   };
 
-  return { tool, dispose };
+  return { tool, dispose, capturedCriteria };
 }
 
 export function browserSessionName(workspace: string): string {

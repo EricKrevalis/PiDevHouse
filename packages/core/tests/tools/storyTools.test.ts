@@ -46,6 +46,21 @@ test("rejects stories without acceptance criteria", () => {
   ).toBeFalse();
 });
 
+test("rejects malformed acceptance criteria", () => {
+  const story = {
+    id: 1,
+    title: "Malformed",
+    description: "Malformed story",
+    acceptanceCriteria: [":x"],
+    blockedBy: [],
+    status: "todo",
+    reviewResult: { score: 0, note: "" },
+    testResult: { score: 0, note: "" },
+  };
+
+  expect(storySchema.safeParse(story).success).toBeFalse();
+});
+
 test("rejects failed custom-tool operations", async () => {
   directory = await mkdtemp(join(tmpdir(), "pidev-story-tool-"));
   const repository = new StoryRepository(
@@ -108,4 +123,58 @@ test("creates stories with validation fields in stable order", async () => {
     "reviewResult",
     "testResult",
   ]);
+});
+
+test("replaces a previous story plan", async () => {
+  directory = await mkdtemp(join(tmpdir(), "pidev-story-tool-"));
+  const repository = new StoryRepository(
+    join(directory, "stories.json") as never,
+  );
+  const tool = createCreateStoriesTool(repository);
+  const makeStory = (title: string) => ({
+    id: 1,
+    title,
+    description: `${title} story`,
+    acceptanceCriteria: ["It works"],
+    blockedBy: [],
+    status: "todo",
+  });
+
+  await (tool.execute as Function)("first", {
+    stories: [makeStory("First")],
+  });
+  await (tool.execute as Function)("corrected", {
+    stories: [makeStory("Corrected")],
+  });
+
+  expect(repository.getStories()).toHaveLength(1);
+  expect(repository.getStory(1)?.title).toBe("Corrected");
+});
+
+test("requires browser evidence before marking a tested story", async () => {
+  directory = await mkdtemp(join(tmpdir(), "pidev-story-tool-"));
+  const repository = new StoryRepository(
+    join(directory, "stories.json") as never,
+  );
+  await repository.createStories([
+    {
+      id: 1,
+      title: "Evidence",
+      description: "Evidence story",
+      acceptanceCriteria: ["First works", "Second works"],
+      blockedBy: [],
+      status: "approved",
+      reviewResult: { score: 100, note: "" },
+      testResult: { score: 100, note: "" },
+    },
+  ]);
+  const captured = new Set([1]);
+  const tool = createUpdateStoryStatusTool(repository, captured);
+
+  await expect(
+    (tool.execute as Function)("call", { id: 1, status: "tested" }),
+  ).rejects.toThrow("acceptance criteria: 2");
+  captured.add(2);
+  await (tool.execute as Function)("call", { id: 1, status: "tested" });
+  expect(repository.getStory(1)?.status).toBe("tested");
 });

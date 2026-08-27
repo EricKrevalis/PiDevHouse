@@ -30,6 +30,8 @@ test("uses bundled browser instructions without remote skill setup", () => {
   );
 
   expect(tester.userPrompts[0]).not.toStartWith("/skill:");
-  expect(tester.userPrompts[0]).toContain("browser` tool");
+  expect(tester.userPrompts[0]).toContain("browser action");
   expect(tester.userPrompts[0]).toContain("serve");
+  expect(tester.userPrompts[0]).toContain("open_file");
+  expect(tester.userPrompts[0]).toContain("story-1-ac-N.png");
 });

@@ -56,7 +56,7 @@ describe("scoped tools", () => {
     expect((await checkPath("grep"))?.block).toBe(true);
   });
 
-  test("blocks tool calls after the configured limit", async () => {
+  test("leaves one finalization turn after the configured limit", async () => {
     const { roots } = await createWorkspace();
     const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
       steer: () => {},
@@ -68,6 +68,9 @@ describe("scoped tools", () => {
     } as never;
 
     expect(await agent.beforeToolCall?.(context)).toBeUndefined();
+    const finalization = await agent.beforeToolCall?.(context);
+    expect(finalization?.block).toBe(true);
+    expect(finalization?.terminate).toBeUndefined();
     expect(await agent.beforeToolCall?.(context)).toMatchObject({
       block: true,
       terminate: true,
@@ -113,10 +116,26 @@ describe("scoped tools", () => {
     expect(await call("update_validation_result")).toBeUndefined();
     expect(await call("create_stories")).toBeUndefined();
     expect(await call("get_story")).toBeUndefined();
-    expect(await call("get_story")).toMatchObject({
-      block: true,
-      terminate: true,
-    });
+    const finalization = await call("get_story");
+    expect(finalization?.block).toBe(true);
+    expect(finalization?.terminate).toBeUndefined();
+    expect(await call("update_story_status")).toBeUndefined();
+  });
+
+  test("does not count screenshot evidence toward the tool limit", async () => {
+    const { roots } = await createWorkspace();
+    const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
+      steer: () => {},
+    };
+    scopeToolCalls(agent, roots, 1);
+    const call = (action: string) =>
+      agent.beforeToolCall?.({
+        toolCall: { name: "browser" },
+        args: { action },
+      } as never);
+
+    expect(await call("screenshot")).toBeUndefined();
+    expect(await call("snapshot")).toBeUndefined();
+    expect(await call("click")).toMatchObject({ block: true });
   });
 });
-
