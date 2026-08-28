@@ -13,7 +13,7 @@ import {
   type ValidationVariant,
 } from "../../tools/storys/updateValidationResult";
 import { createGetStoryTool } from "../../tools/storys/getStory";
-import { loadPrompt } from "../prompt";
+import { loadPrompt, TEAM_PREFIX } from "../prompt";
 
 export class TesterAgent extends Agent {
   private browser?: ReturnType<typeof createBrowserTool>;
@@ -31,8 +31,7 @@ export class TesterAgent extends Agent {
     super({
       name: "tester",
       modelProvider,
-      systemPrompt:
-        "You are the independent tester of Concentus, a small AI software team.",
+      systemPrompt: `${TEAM_PREFIX} You are the independent tester.`,
       userPrompts: [
         loadPrompt(new URL("./testerPrompt.md", import.meta.url), {
           storyId: String(storyId),

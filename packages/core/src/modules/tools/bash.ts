@@ -8,6 +8,8 @@ import {
 import { isInside } from "./scope";
 
 const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000;
+/** Default per-command timeout; the model may pass longer via the tool's timeout argument. */
+const DEFAULT_TIMEOUT_SECONDS = 300;
 const RUNTIME_PATHS = [
   "/nix/store",
   "/usr",
@@ -117,6 +119,7 @@ function sandboxedBashOperations(
         throw new Error(`Sandbox cwd must be ${workspace}`);
       }
       if (signal?.aborted) throw new Error("aborted");
+      timeout ??= DEFAULT_TIMEOUT_SECONDS;
       if (
         timeout !== undefined &&
         (!Number.isFinite(timeout) ||

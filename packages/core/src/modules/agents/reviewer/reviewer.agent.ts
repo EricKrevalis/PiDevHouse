@@ -12,7 +12,7 @@ import {
   type ValidationVariant,
 } from "../../tools/storys/updateValidationResult";
 import { createGetStoryTool } from "../../tools/storys/getStory";
-import { loadPrompt } from "../prompt";
+import { loadPrompt, TEAM_PREFIX } from "../prompt";
 
 export class ReviewerAgent extends Agent {
   constructor(
@@ -28,7 +28,7 @@ export class ReviewerAgent extends Agent {
       name: "reviewer",
       modelProvider,
       systemPrompt:
-        "You are the independent reviewer of Concentus, a small AI software team. update_story_status and update_validation_result are your only writes.",
+        `${TEAM_PREFIX} You are the independent reviewer. update_story_status and update_validation_result are your only writes.`,
       userPrompts: [
         loadPrompt(new URL("./reviewerPrompt.md", import.meta.url), {
           storyId: String(storyId),

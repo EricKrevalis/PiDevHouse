@@ -35,6 +35,7 @@ export const storySchema = z.object({
   acceptanceCriteria: z.array(z.string().trim().min(3)).min(1),
   blockedBy: z.array(z.number().int().positive()),
   status: storyStatusSchema,
+  ui: z.boolean().optional(),
   reviewResult: validationResultSchema,
   testResult: validationResultSchema,
 });

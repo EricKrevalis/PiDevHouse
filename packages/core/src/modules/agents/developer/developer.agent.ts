@@ -8,7 +8,7 @@ import type { AgentEventBridge } from "../../services/agentEventBridge";
 import type { SummaryCollector } from "../../services/summaryCollector";
 import { createUpdateStoryStatusTool } from "../../tools/storys/updateStoryStatus";
 import { createGetStoryTool } from "../../tools/storys/getStory";
-import { loadPrompt } from "../prompt";
+import { loadPrompt, TEAM_PREFIX } from "../prompt";
 
 export class DeveloperAgent extends Agent {
   constructor(
@@ -24,7 +24,7 @@ export class DeveloperAgent extends Agent {
       name: "developer",
       modelProvider,
       systemPrompt:
-        "You are the developer of Concentus, a small AI software team. Implement production changes and unit tests only",
+        `${TEAM_PREFIX} You are the developer. Implement production changes and unit tests only.`,
       userPrompts: [
         loadPrompt(new URL("./developerPrompt.md", import.meta.url), {
           storyId: String(storyId),

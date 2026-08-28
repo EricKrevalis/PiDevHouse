@@ -53,7 +53,7 @@ export class OllamaProvider {
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           contextWindow: 65_536,
-          maxTokens: 8_192,
+          maxTokens: 16_384,
           compat: {
             supportsStore: false,
             supportsDeveloperRole: true,
@@ -83,7 +83,7 @@ export class OllamaProvider {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: this.modelId,
-            keep_alive: "5m",
+            keep_alive: "60m",
             stream: false,
           }),
           signal,

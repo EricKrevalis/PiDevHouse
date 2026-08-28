@@ -80,26 +80,28 @@ export abstract class Agent {
     });
     await resourceLoader.reload();
 
-    const customTools = this.buildCustomTools();
-    if (this.tools.includes("bash")) {
-      customTools.push(createSandboxedBashTool(this.workspace) as ToolDefinition);
-    }
-
-    const { session } = await createAgentSession({
-      cwd: this.workspace,
-      model: this.modelProvider.model,
-      modelRuntime: this.modelProvider.modelRuntime,
-      thinkingLevel: "medium",
-      tools: [...new Set([...this.tools, ...customTools.map((tool) => tool.name)])],
-      customTools,
-      resourceLoader: resourceLoader,
-      sessionManager: SessionManager.inMemory(),
-      settingsManager: SettingsManager.inMemory(),
-    });
-    this.session = session;
-
     let completed = false;
     try {
+      const customTools = this.buildCustomTools();
+      if (this.tools.includes("bash")) {
+        customTools.push(createSandboxedBashTool(this.workspace) as ToolDefinition);
+      }
+
+      const { session } = await createAgentSession({
+        cwd: this.workspace,
+        model: this.modelProvider.model,
+        modelRuntime: this.modelProvider.modelRuntime,
+        thinkingLevel: "medium",
+        tools: [...new Set([...this.tools, ...customTools.map((tool) => tool.name)])],
+        customTools,
+        resourceLoader: resourceLoader,
+      sessionManager: SessionManager.inMemory(),
+      settingsManager: SettingsManager.inMemory({
+        retry: { enabled: true, maxRetries: 2, baseDelayMs: 1_000 },
+      }),
+      });
+      this.session = session;
+
       scopeToolCalls(
         session.agent,
         [resolve(this.workspace, "src"), resolve(this.workspace, "test")],
@@ -125,9 +127,10 @@ export abstract class Agent {
 
   async close(): Promise<void> {
     const session = this.session;
-    if (!session) return;
 
     await this.cleanup();
+    if (!session) return;
+
     session.dispose();
     if (this.session === session) this.session = undefined;
   }

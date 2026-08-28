@@ -93,7 +93,7 @@ export const App = (props: AppProps = {}) => {
     if (!running()) return;
     const timer = setInterval(
       () => setProgressFrame((frame) => (frame + 1) % spinnerFrames.length),
-      300,
+      100,
     );
     onCleanup(() => clearInterval(timer));
   });

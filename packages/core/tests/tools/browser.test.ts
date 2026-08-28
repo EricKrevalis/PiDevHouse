@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   browserCommand,
   browserSessionName,
   createBrowserTool,
+  rewriteFileUrl,
   type BrowserParams,
 } from "../../src/modules/tools/browser";
 
@@ -40,6 +42,15 @@ test("rejects incomplete params", () => {
 test("session name is stable and path-specific", () => {
   expect(browserSessionName("/a/ws")).toBe(browserSessionName("/a/ws"));
   expect(browserSessionName("/a/ws")).not.toBe(browserSessionName("/b/ws"));
+});
+
+test("rewrites file:// urls inside the workspace to the server url", () => {
+  const base = "http://127.0.0.1:4321/";
+  const inside = pathToFileURL("/a/ws/test/my fixture.html").href;
+  expect(rewriteFileUrl("/a/ws", inside, base)).toBe(
+    "http://127.0.0.1:4321/test/my%20fixture.html",
+  );
+  expect(rewriteFileUrl("/a/ws", pathToFileURL("/b/elsewhere.html").href, base)).toBeUndefined();
 });
 
 test("serve exposes the workspace root and dispose stops it", async () => {

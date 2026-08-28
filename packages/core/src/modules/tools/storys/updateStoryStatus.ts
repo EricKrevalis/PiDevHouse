@@ -22,7 +22,7 @@ export function createUpdateStoryStatusTool(
       if (!story) {
         throw new Error(`story ${params.id} not found`);
       }
-      if (params.status === "tested" && testedCriteria) {
+      if (params.status === "tested" && testedCriteria && story.ui) {
         const missing = story.acceptanceCriteria
           .map((_, index) => index + 1)
           .filter((criterion) => !testedCriteria.has(criterion));

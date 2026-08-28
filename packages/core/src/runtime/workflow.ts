@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import {
   defaultConfig,
   STORIES_FILE,
@@ -172,6 +173,15 @@ async function createRunDirectory(
   return prepareWorkspace(resolve(outputDir, slug, timestamp) as Path);
 }
 
+/** Git identity so agents can commit; the run workspace starts as a fresh repo. */
+function initGitRepo(workspace: Path): void {
+  const git = (args: string[]) =>
+    execFileSync("git", args, { cwd: workspace, stdio: "ignore" });
+  git(["init", "-q"]);
+  git(["config", "user.email", "developer@concentus.local"]);
+  git(["config", "user.name", "Developer"]);
+}
+
 async function prepareWorkspace(workspace: Path): Promise<Path> {
   const src = resolve(workspace, "src");
   const log = resolve(workspace, "log");
@@ -182,9 +192,10 @@ async function prepareWorkspace(workspace: Path): Promise<Path> {
     mkdir(log, { recursive: true }),
     mkdir(test, { recursive: true }),
   ]);
-  await writeFile(
-    resolve(src, "AGENTS.md"),
-    `# Workspace notes
+  await Promise.all([
+    writeFile(
+      resolve(src, "AGENTS.md"),
+      `# Workspace notes
 
 ## Environment
 
@@ -193,7 +204,14 @@ async function prepareWorkspace(workspace: Path): Promise<Path> {
 ## Learned notes
 
 Add only new working commands or sandbox quirks below.`,
-  );
+    ),
+    writeFile(resolve(workspace, ".gitignore"), "log/\n"),
+  ]);
+  try {
+    initGitRepo(workspace);
+  } catch {
+    // git unavailable — developer commits are best-effort
+  }
 
   return workspace as Path;
 }

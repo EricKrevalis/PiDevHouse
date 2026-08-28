@@ -7,7 +7,7 @@ import type { StoryRepository } from "../../repository/story.repository";
 import type { AgentEventBridge } from "../../services/agentEventBridge";
 import type { SummaryCollector } from "../../services/summaryCollector";
 import { createCreateStoriesTool } from "../../tools/storys/createStories";
-import { loadPrompt } from "../prompt";
+import { loadPrompt, TEAM_PREFIX } from "../prompt";
 
 export class ProductOwnerAgent extends Agent {
   constructor(
@@ -23,7 +23,7 @@ export class ProductOwnerAgent extends Agent {
       name: "productOwner",
       modelProvider,
       systemPrompt:
-        "You are the product owner of Concentus, a small AI software team. **Always conclude your turn with the create_stories tool**",
+        `${TEAM_PREFIX} You are the product owner. **Always conclude your turn with the create_stories tool**`,
       userPrompts: [
         loadPrompt(new URL("./poPrompt.md", import.meta.url), { userRequest }),
       ],

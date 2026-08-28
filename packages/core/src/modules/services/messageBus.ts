@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Message } from "../models/message.model.ts";
 import type { Path } from "typescript";
@@ -9,13 +9,14 @@ type Listener = (message: Message) => void;
 export class MessageBus {
   private readonly listeners = new Set<Listener>();
   private readonly logFile: Path;
+  private logQueue: Promise<void> = Promise.resolve();
 
   constructor(workspace: Path) {
     this.logFile = resolve(workspace, LOG_FILE) as Path;
   }
 
   publish(message: Message): void {
-    if (this.logFile) this.log(message);
+    if (this.logFile && message.type !== "elapsed") this.log(message);
     for (const listener of this.listeners) listener(message);
   }
 
@@ -25,6 +26,8 @@ export class MessageBus {
   }
 
   private log(message: Message): void {
-    appendFileSync(this.logFile, `${JSON.stringify(message)}\n`);
+    this.logQueue = this.logQueue
+      .then(() => appendFile(this.logFile, `${JSON.stringify(message)}\n`))
+      .catch(() => {});
   }
 }

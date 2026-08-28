@@ -120,6 +120,7 @@ test("creates stories with validation fields in stable order", async () => {
     "acceptanceCriteria",
     "blockedBy",
     "status",
+    "ui",
     "reviewResult",
     "testResult",
   ]);
@@ -164,6 +165,7 @@ test("requires browser evidence before marking a tested story", async () => {
       acceptanceCriteria: ["First works", "Second works"],
       blockedBy: [],
       status: "approved",
+      ui: true,
       reviewResult: { score: 100, note: "" },
       testResult: { score: 100, note: "" },
     },

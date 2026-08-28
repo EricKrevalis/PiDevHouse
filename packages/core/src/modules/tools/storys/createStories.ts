@@ -31,13 +31,14 @@ export function createCreateStoriesTool(
       }
 
       const created = params.stories.map(
-        ({ id, title, description, acceptanceCriteria, blockedBy, status }) => ({
+        ({ id, title, description, acceptanceCriteria, blockedBy, status, ui }) => ({
           id,
           title,
           description,
           acceptanceCriteria,
           blockedBy,
           status,
+          ui,
           reviewResult: { score: 0, note: "" },
           testResult: { score: 0, note: "" },
         }),

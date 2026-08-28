@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:net";
-import { basename, resolve } from "node:path";
+import { basename, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
@@ -26,7 +27,10 @@ const paramsSchema = z.object({
     .describe(
       "serve: start a static server exposing the workspace root (src/ is at /src/) and return its URL. open: navigate. snapshot: accessibility tree with element refs. click/fill: act on a ref or CSS selector. eval: run JavaScript in the page. screenshot: save criterion evidence into test/. close: stop browser and server.",
     ),
-  url: z.string().optional().describe("Target URL for open."),
+  url: z
+    .string()
+    .optional()
+    .describe("Target URL for open. file:// URLs inside the workspace are served via the local server."),
   selector: z
     .string()
     .optional()
@@ -144,6 +148,8 @@ export function createBrowserTool(workspace: string, storyId: number): {
 
   async function serve(): Promise<string> {
     if (serverUrl) return serverUrl;
+    // reap a daemon orphaned by a hard-killed previous run before starting fresh
+    await run(["close"], CLOSE_TIMEOUT_MS).catch(() => {});
     const port = await freePort();
     // Serve the workspace root so both /index.html and /src/... asset paths resolve.
     server = spawn(
@@ -171,6 +177,13 @@ export function createBrowserTool(workspace: string, storyId: number): {
     server = undefined;
     serverUrl = undefined;
     throw new Error(`static server did not start within ${SERVER_TIMEOUT_MS / 1000}s`);
+  }
+
+  /** file:// URLs are served through the static server, whose domain the browser allows. */
+  async function servedFileUrl(url: string): Promise<string> {
+    if (!url.startsWith("file://")) return url;
+    const rewritten = rewriteFileUrl(workspace, url, await serve());
+    return rewritten ?? url;
   }
 
   function killTree(pid: number | undefined, signal: "SIGTERM" | "SIGKILL" = "SIGTERM"): void {
@@ -221,6 +234,9 @@ export function createBrowserTool(workspace: string, storyId: number): {
       if (params.action === "serve") {
         return toolResult(await serve());
       }
+      if (params.action === "open") {
+        if (params.url) params.url = await servedFileUrl(params.url);
+      }
       if (params.action === "close") {
         await dispose();
         return toolResult("browser and static server stopped");
@@ -248,6 +264,19 @@ export function createBrowserTool(workspace: string, storyId: number): {
 export function browserSessionName(workspace: string): string {
   const hash = createHash("sha256").update(resolve(workspace)).digest("hex").slice(0, 8);
   return `pidev-${basename(workspace)}-${hash}`;
+}
+
+/** Map a file:// URL inside workspace to the static-server URL serving it; undefined if outside. */
+export function rewriteFileUrl(
+  workspace: string,
+  url: string,
+  base: string,
+): string | undefined {
+  const localPath = fileURLToPath(url);
+  const rel = relative(workspace, localPath);
+  if (!rel || rel.startsWith("..")) return undefined;
+  const path = rel.split("/").map(encodeURIComponent).join("/");
+  return new URL(`/${path}`, base).href;
 }
 
 function toolResult(text: string) {

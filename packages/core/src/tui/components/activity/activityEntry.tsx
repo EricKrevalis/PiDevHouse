@@ -21,7 +21,9 @@ export function ActivityEntryView(props: ActivityEntryViewProps) {
   if (props.entry.type === "tool") {
     return (
       <text fg={toolColor(props.entry.status)} wrapMode="none" truncate>
-        {toolStatus(props.entry.status, props.progressFrame)} ⚙ {props.entry.tool}
+        {props.entry.status === "running"
+          ? toolStatus(props.entry.status, props.progressFrame)
+          : toolStatus(props.entry.status, 0)} ⚙ {props.entry.tool}
         {formatToolArgs(props.entry.args, props.entry.tool)}
         {props.entry.status === "error" && props.entry.result
           ? ` · ${singleLine(props.entry.result)}`
