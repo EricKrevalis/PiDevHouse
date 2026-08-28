@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  limitActivityEntries,
-  reduceActivity,
-} from "../../src/tui/activity";
+import { reduceActivity } from "../../src/tui/activity";
 import type { Message } from "../../src/modules/models/message.model";
 
 const scope = {
@@ -106,14 +103,4 @@ test("formats story context without a hash", () => {
     { type: "text", text: "" },
     { type: "text", text: "score story 7 · review  80" },
   ]);
-});
-
-test("bounds activity history", () => {
-  const entries = Array.from({ length: 600 }, (_, index) => ({
-    type: "text" as const,
-    text: String(index),
-  }));
-
-  expect(limitActivityEntries(entries)).toHaveLength(500);
-  expect(limitActivityEntries(entries)[0]).toEqual({ type: "text", text: "100" });
 });

@@ -60,6 +60,7 @@ export function lineColor(line: string): string {
   if (line.startsWith("warning ·")) return theme.warning;
   if (line.startsWith("score ")) return theme.warning;
   if (line.startsWith("stories:")) return theme.muted;
+  if (line.startsWith("total elapsed ·")) return theme.success;
   return theme.text;
 }
 

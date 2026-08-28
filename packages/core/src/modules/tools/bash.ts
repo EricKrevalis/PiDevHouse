@@ -1,4 +1,4 @@
-import { constants, accessSync, realpathSync } from "node:fs";
+import { constants, accessSync, mkdirSync, realpathSync } from "node:fs";
 import { delimiter, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import {
@@ -86,14 +86,18 @@ function bubblewrapArgs(
     "/tmp/home",
   ];
   for (const path of RUNTIME_PATHS) args.push("--ro-bind-try", path, path);
-  args.push("--dir", workspace, "--tmpfs", workspace);
+  args.push("--bind", workspace, workspace);
   for (const root of roots) {
     args.push("--dir", root.target, "--bind", root.source, root.target);
   }
+  // harness state (stories.json, run log) stays read-only even though the root is writable
+  args.push(
+    "--ro-bind-try",
+    resolve(workspace, "log"),
+    resolve(workspace, "log"),
+  );
 
   args.push(
-    "--remount-ro",
-    workspace,
     "--remount-ro",
     "/",
     "--chdir",
@@ -203,6 +207,8 @@ export function createSandboxedBashTool(
   if (!shell) throw new Error("Sandboxed bash could not find a runtime shell");
 
   const workspace = realpathSync(resolve(workspacePath));
+  // the log ro-bind needs the directory to exist; the harness normally creates it first
+  mkdirSync(resolve(workspace, "log"), { recursive: true });
   const roots = ["src", "test"].map((name) => {
     const target = resolve(workspace, name);
     const source = realpathSync(target);

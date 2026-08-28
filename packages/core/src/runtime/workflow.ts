@@ -200,6 +200,8 @@ async function prepareWorkspace(workspace: Path): Promise<Path> {
 ## Environment
 
 - Use Bun. Run all tests with \`bun test test\`. Do not probe for or use Node, npm, or npx.
+- The sandbox has network access. Add dependencies with \`bun install\` in the workspace root; \`package.json\` and \`node_modules\` live at the root and are importable from both \`src/\` and \`test/\`.
+- \`log/\` is managed by the harness and read-only; commit with plain \`git\` (\`.git\` is in the workspace root).
 
 ## Learned notes
 

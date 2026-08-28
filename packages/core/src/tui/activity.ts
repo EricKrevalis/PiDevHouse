@@ -14,8 +14,6 @@ export type ActivityEntry =
       result?: string;
     };
 
-const MAX_ACTIVITY_ENTRIES = 500;
-
 export function reduceActivity(
   entries: ActivityEntry[],
   message: Message,
@@ -141,12 +139,4 @@ export function reduceActivity(
     default:
       return entries;
   }
-}
-
-export function limitActivityEntries(
-  entries: ActivityEntry[],
-): ActivityEntry[] {
-  return entries.length > MAX_ACTIVITY_ENTRIES
-    ? entries.slice(-MAX_ACTIVITY_ENTRIES)
-    : entries;
 }

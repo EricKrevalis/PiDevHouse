@@ -14,7 +14,6 @@ import {
 import { main } from "../runtime/workflow";
 import type { Message } from "../modules/models/message.model";
 import {
-  limitActivityEntries,
   reduceActivity,
   type ActivityEntry,
 } from "./activity";
@@ -60,7 +59,7 @@ export const App = (props: AppProps = {}) => {
   const run = props.run ?? defaultRun;
   const updateActivity = (
     update: (entries: ActivityEntry[]) => ActivityEntry[],
-  ) => setActivity((entries) => limitActivityEntries(update(entries)));
+  ) => setActivity((entries) => update(entries));
   const showElapsed = (totalSeconds: number) => {
     setSeconds(totalSeconds);
     updateActivity((prev) => [

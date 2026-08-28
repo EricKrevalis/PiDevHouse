@@ -66,6 +66,34 @@ sandboxTest("bubblewrap writes src and cannot read host home or environment", as
   ).rejects.toThrow("Command exited with code");
 });
 
+sandboxTest("workspace root is writable, log stays read-only", async () => {
+  const { root } = await createWorkspace();
+  const tool = createSandboxedBashTool(root);
+
+  await tool.execute(
+    "write-root",
+    { command: "printf {} > package.json && touch .gitkeep" },
+    undefined,
+    undefined,
+    {} as never,
+  );
+  expect(await readFile(join(root, "package.json"), "utf8")).toBe("{}");
+
+  const log = join(root, "log");
+  await mkdir(log, { recursive: true });
+  await writeFile(join(log, "stories.json"), "[]");
+  await expect(
+    tool.execute(
+      "write-log",
+      { command: "touch log/other.json" },
+      undefined,
+      undefined,
+      {} as never,
+    ),
+  ).rejects.toThrow("Command exited with code");
+  expect(await readFile(join(log, "stories.json"), "utf8")).toBe("[]");
+});
+
 sandboxTest("bubblewrap honors timeout and AbortSignal", async () => {
   const { root } = await createWorkspace();
   const tool = createSandboxedBashTool(root);
