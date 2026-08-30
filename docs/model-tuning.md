@@ -1,6 +1,6 @@
 # Model tuning
 
-Last updated 2026-08-27.
+Last updated 2026-08-30.
 
 Remote host: `jupyter-infwge957` (100.119.46.106), reached over tailscale.
 `jupyter_scripts/` provisions it.
@@ -74,6 +74,19 @@ Think vs instruct wall-clock, from existing experiment summaries: think
 completed faster (about 65 min vs about 91 min per run) at similar tok/s and
 completion rate. Only measured for the mtp/iq3s families so far, not q3kxl.
 
+MTP draft model on qwen3.8 does not pay off: no draft (baseline) is the
+fastest of the three and, together with `draft_num_predict 2`, tied for most
+reliable (both 2/2 clean); a deeper draft (`draft_num_predict 4`) is both
+slower and the only one of the three with a run that never finished.
+Attaching a draft model spends VRAM and wall time without a decoding speed
+win here.
+
+Thinking level, tested on `qwen3.6-mtp-tuned` and `qwen3.8-iq3s-tuned`: `low`
+is the only level that finished clean on both models. `medium` and `high` get
+slower and less reliable as the level goes up, and `high` failed to finish
+either run on the 3.8 model. More reasoning did not produce a better result
+here, only a slower and shakier one.
+
 ## Fixes
 
 - `OllamaProvider` reads `OLLAMA_CONTEXT_WINDOW` / `OLLAMA_MAX_TOKENS` from
@@ -94,12 +107,73 @@ completion rate. Only measured for the mtp/iq3s families so far, not q3kxl.
   default (`xhigh`, seen only when no effort is specified at all) was never
   actually in play historically.
 
-## In progress: MTP draft model on qwen3.8 (2026-08-27)
+## MTP draft model on qwen3.8 (2026-08-27, done)
 
-Testing whether attaching a real speculative-decoding draft model helps the
-`qwen3.8` family the way MTP already does for the ThinkingCap model, using
-`qwen3.8-iq3s-mtp2-tuned` and `qwen3.8-iq3s-mtp4-tuned` above. Baseline for
-comparison: the existing `qwen3.8-iq3s-tuned` run from the tuned-comparison
-batch (3836s, 4/4 stories at 100/100, see
-`../../../projects/handins/ki/research/pidevhouse-runs-2026-08-27-tuned-comparison/`).
-Not yet run.
+Tested whether attaching a real speculative-decoding draft model helps the
+`qwen3.8` family the way MTP already does for the ThinkingCap model. Same
+calculator app spec, 2 repeats per variant, `THINKING_LEVEL=medium` (the
+default at the time). Reports under `output/mtp-baseline-run{1,2}`,
+`output/mtp2-run{1,2}`, `output/mtp4-run{1,2}`.
+
+| variant                  | run  | duration | outcome    | stories                     |
+|--------------------------|------|----------|------------|------------------------------|
+| baseline (no draft)      | 1    | 3651s    | completed  | 3/3 tested, 100/100          |
+| baseline (no draft)      | 2    | 4747s    | completed  | 2/2 tested, 100/100          |
+| mtp2 (draft_num_predict 2) | 1  | 5443s    | completed  | 2/2 tested, 100/100          |
+| mtp2 (draft_num_predict 2) | 2  | 3735s    | completed  | 2/2 tested, 100/100          |
+| mtp4 (draft_num_predict 4) | 1  | 4037s    | completed  | 2/2 tested, 100/100          |
+| mtp4 (draft_num_predict 4) | 2  | 10904s   | incomplete | 2/3 tested 100/100, 1 blocked at 0 |
+
+Baseline and mtp2 both finished clean 2/2; baseline was the fastest of the
+three on average (4199s vs 4589s for mtp2). At `draft_num_predict 4`, mtp4
+produced the one run in this batch that never finished (a story got stuck
+at `blocked` after 4 iterations, reasoning tokens for that run were about
+212k against 73k-155k for the other five). A deeper draft did not speed
+anything up here and made mtp4 the least reliable of the three. Conclusion:
+skip the draft model for `qwen3.8`, the speculative decoding is not earning back its
+VRAM and wall-time cost. `qwen3.8-iq3s-mtp2-tuned` / `-mtp4-tuned` stay on
+the node for reference but are not worth promoting into regular use.
+
+## Thinking level sweep (2026-08-28, done)
+
+Compared `off`/`minimal` excluded, `low`/`medium`/`high` reasoning effort on
+`qwen3.6-mtp-tuned` (ctx 26624) and `qwen3.8-iq3s-tuned` (ctx 65536), 2
+repeats per level, same calculator app spec. Reports under
+`output/thinking-3.6-<level>-run{1,2}` and `output/thinking-3.8-<level>-run{1,2}`.
+
+| model | level  | run | duration | outcome    |
+|-------|--------|-----|----------|------------|
+| 3.6   | low    | 1   | 2203s    | completed  |
+| 3.6   | low    | 2   | 491s     | completed  |
+| 3.6   | medium | 1   | 2786s    | completed  |
+| 3.6   | medium | 2   | 2309s    | incomplete (blocked at score 70, 2 stories never started) |
+| 3.6   | high   | 1   | 2650s    | completed  |
+| 3.6   | high   | 2   | 3394s    | incomplete (blocked at score 0, 1 story never started) |
+| 3.8   | low    | 1   | 5906s    | completed  |
+| 3.8   | low    | 2   | 3742s    | completed  |
+| 3.8   | medium | 1   | 4082s    | completed  |
+| 3.8   | medium | 2   | 6739s    | completed  |
+| 3.8   | high   | 1   | 8852s    | incomplete (blocked at score 0, 1 story never started) |
+| 3.8   | high   | 2   | 10193s   | incomplete (blocked at score 0, 1 story never started) |
+
+Completion rate by level: low 4/4, medium 3/4, high 1/4. Average duration on
+the runs that did finish also goes up with the level (3.6: about 1347s at
+low vs about 2718s at medium/high combined; 3.8: about 4824s at low vs about
+5410s at medium; high never finished either run, so no average to compare).
+
+Every incomplete run failed the same way: the tester agent got stuck in a
+long back and forth debugging a real UI bug (in one case a genuine CSS
+centering/overflow bug in the generated calculator layout), burned through
+its reasoning budget, and the run was aborted mid turn before it ever wrote
+a test result, leaving the story `blocked` and the remaining stories
+untouched. The two `high` runs on `qwen3.8` had by far the highest reasoning
+token counts in the whole sweep (about 252k and 299k, versus roughly
+6k-136k across the other ten runs), which lines up with this: more reasoning effort
+did not make the tester agent solve the UI bug faster, it just spent longer
+circling it and ran out of budget more often.
+
+Conclusion: `low` is the setting to use. It was the only level that finished
+clean on both models, and it was also the fastest. `medium` (the prior
+default) and `high` add wall time and a real chance the run never finishes,
+without any corresponding gain in test scores (every story that did finish,
+finished at 100/100 regardless of level).
