@@ -106,6 +106,30 @@ runs the default request three times. A spec looks like:
 Each batch is placed in the next available `output/experiments-N/` directory.
 Pass `--output-subdir=name` when a batch needs a specific name.
 
+### Batch sequences
+
+A comparison usually needs several batches under different models, so
+`packages/core/scripts/run-comparison.sh` runs them back to back. Each batch
+pins its own model, context window and thinking level, and only one model is
+resident at a time.
+
+```sh
+setsid nohup script -qec "bash packages/core/scripts/run-comparison.sh" /dev/null >/dev/null 2>&1 &
+tail -f output/run-comparison.log
+```
+
+The TUI renderer needs a pty, hence `script`. Before each batch a preflight
+loads the model and checks it came up at the expected `num_ctx` and fully
+resident in VRAM, and skips the batch otherwise, because a batch that spilled
+to CPU or loaded at the wrong context is not comparable with the others. Every
+run records its model, context window, thinking level and commit in its own
+`summary.json`. Edit the `batch` lines at the bottom of the script to change
+what a sequence covers.
+
+Do not start a second sequence against the same Ollama host while one is
+running. The models here are sized so that one fits the GPU, so a second
+sequence evicts the first one's model mid-run.
+
 ## Development
 
 ```sh
