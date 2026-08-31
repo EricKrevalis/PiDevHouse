@@ -6,7 +6,6 @@ export interface Config {
   maxIteration: number;
   minScore: number;
   maxToolCalls: number;
-  /** Optional hard deadline in seconds; unset means the run has no deadline. */
   runTimeoutSeconds?: number;
 }
 

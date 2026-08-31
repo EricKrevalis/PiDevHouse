@@ -12,11 +12,9 @@ export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
-  /** Average generation throughput: output tokens per second of streaming. */
   tokensPerSecond: number;
   toolCalls: number;
   compactions: number;
-  /** Per model call: token usage and time to first token in seconds. */
   callLog: { input: number; output: number; ttftSeconds: number | null }[];
 }
 
