@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Agent } from "../../src/modules/models/agent.model";
+import { Agent, promptSession } from "../../src/modules/models/agent.model";
 import { OllamaProvider } from "../../src/modules/models/ollamaProvider.model";
 import { StoryRepository } from "../../src/modules/repository/story.repository";
 import { SummaryCollector } from "../../src/modules/services/summaryCollector";
@@ -112,4 +112,23 @@ test("aborts an active Pi prompt", async () => {
 
   await expect(pending).rejects.toThrow();
   expect(aborts).toBe(1);
+});
+
+test("recovers when a queued continuation hits the assistant-role error", async () => {
+  const prompts: string[] = [];
+  const session = {
+    prompt: async (prompt: string) => {
+      prompts.push(prompt);
+      if (prompts.length === 1) {
+        throw new Error("Cannot continue from message role: assistant");
+      }
+      if (prompt === "other") {
+        throw new Error("boom");
+      }
+    },
+  };
+
+  await promptSession(session, "retry");
+  await expect(promptSession(session, "other")).rejects.toThrow("boom");
+  expect(prompts).toEqual(["retry", "retry", "other"]);
 });

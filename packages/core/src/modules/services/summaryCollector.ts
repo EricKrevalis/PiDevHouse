@@ -16,8 +16,8 @@ export interface AgentUsage {
   tokensPerSecond: number;
   toolCalls: number;
   compactions: number;
-  /** Per model call: token usage and time to first token. */
-  callLog: { input: number; output: number; ttftMs: number | null }[];
+  /** Per model call: token usage and time to first token in seconds. */
+  callLog: { input: number; output: number; ttftSeconds: number | null }[];
 }
 
 export type OutcomeClass =
@@ -53,6 +53,8 @@ export interface Summary {
   startedAt: string;
   endedAt: string;
   durationSeconds: number;
+  /** Duration formatted as H:MM:SS. */
+  durationHms: string;
   request: string;
   outcome: OutcomeClass;
   error?: SerializedError;
@@ -65,6 +67,12 @@ export interface Summary {
     reviewScore: number | undefined;
     testScore: number | undefined;
   }[];
+}
+
+export function formatDurationHms(seconds: number): string {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  return `${h}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
 export class SummaryCollector {
@@ -142,9 +150,9 @@ export class SummaryCollector {
     usage.callLog.push({
       input,
       output,
-      ttftMs:
+      ttftSeconds:
         startedAt !== undefined && firstTokenAt !== undefined
-          ? firstTokenAt - startedAt
+          ? (firstTokenAt - startedAt) / 1000
           : null,
     });
     if (startedAt !== undefined) {
@@ -181,10 +189,11 @@ export class SummaryCollector {
 
   async writeSummary(
     runDir: string,
-    metadata: Omit<Summary, "agents" | "stories"> & { stories: Story[] },
+    metadata: Omit<Summary, "agents" | "stories" | "durationHms"> & { stories: Story[] },
   ): Promise<void> {
     const summary: Summary = {
       ...metadata,
+      durationHms: formatDurationHms(metadata.durationSeconds),
       agents: Object.fromEntries(this.agents),
       stories: metadata.stories.map((story) => ({
         id: story.id,

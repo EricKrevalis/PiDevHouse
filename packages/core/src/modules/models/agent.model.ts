@@ -6,7 +6,6 @@ import {
   type AgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { resolve } from "node:path";
 import type { OllamaProvider } from "./ollamaProvider.model";
 import type { Config } from "./config.model";
 import type { AgentEventBridge } from "../services/agentEventBridge";
@@ -102,11 +101,7 @@ export abstract class Agent {
       });
       this.session = session;
 
-      scopeToolCalls(
-        session.agent,
-        [resolve(this.workspace, "src"), resolve(this.workspace, "test")],
-        this.config.maxToolCalls,
-      );
+      scopeToolCalls(session.agent, this.workspace, this.config.maxToolCalls);
       this.eventBridge.attach(session, {
         agent: this.name,
         storyId,
@@ -143,11 +138,31 @@ export abstract class Agent {
     signal?.addEventListener("abort", abort, { once: true });
     try {
       signal?.throwIfAborted();
-      await session.prompt(prompt);
+      await promptSession(session, prompt);
       signal?.throwIfAborted();
     } finally {
       signal?.removeEventListener("abort", abort);
     }
+  }
+}
+
+export async function promptSession(
+  session: { prompt(prompt: string): Promise<void> },
+  prompt: string,
+): Promise<void> {
+  try {
+    await session.prompt(prompt);
+  } catch (error) {
+    // a queued continuation can race the queue drain in pi-agent-core and
+    // throw on the finished assistant turn; the transcript is intact, so a
+    // fresh user message continues it cleanly
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("Cannot continue from message role")
+    ) {
+      throw error;
+    }
+    await session.prompt(prompt);
   }
 }
 

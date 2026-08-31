@@ -39,11 +39,10 @@ async function isScopedPath(root: string, target: string): Promise<boolean> {
 
 export function scopeToolCalls(
   agent: Pick<Agent, "beforeToolCall" | "steer">,
-  roots: readonly string[],
+  workspace: string,
   maxToolCalls = Infinity,
 ): void {
-  const scopedRoots = roots.map((root) => resolve(root));
-  const workspace = dirname(scopedRoots[0] ?? resolve("."));
+  const root = resolve(workspace);
   const originalBefore = agent.beforeToolCall;
   let toolCalls = 0;
   let finalizing = false;
@@ -97,14 +96,11 @@ export function scopeToolCalls(
     if (PATH_TOOLS.has(ctx.toolCall.name)) {
       const args = ctx.args as Record<string, unknown>;
       const path = args.path ?? args.file_path;
-      const target = resolve(workspace, typeof path === "string" ? path : ".");
-      const inside = (
-        await Promise.all(scopedRoots.map((root) => isScopedPath(root, target)))
-      ).some(Boolean);
-      if (!inside) {
+      const target = resolve(root, typeof path === "string" ? path : ".");
+      if (!(await isScopedPath(root, target))) {
         return {
           block: true,
-          reason: `Tool paths must stay inside ${roots.join(", ")}`,
+          reason: "Tool paths must stay inside the workspace",
         };
       }
     }

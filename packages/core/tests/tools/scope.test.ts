@@ -17,16 +17,14 @@ afterEach(async () => {
 async function createWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "pidev-sandbox-"));
   cleanup.push(root);
-  const src = join(root, "src");
-  const testRoot = join(root, "test");
-  await Promise.all([mkdir(src), mkdir(testRoot)]);
-  return { root, roots: [src, testRoot] };
+  await Promise.all([mkdir(join(root, "src")), mkdir(join(root, "test"))]);
+  return root;
 }
 
 async function checkPath(tool: string, path?: string) {
-  const { roots } = await createWorkspace();
+  const root = await createWorkspace();
   const agent: Pick<Agent, "beforeToolCall" | "steer"> = { steer: () => {} };
-  scopeToolCalls(agent, roots);
+  scopeToolCalls(agent, root);
   return agent.beforeToolCall?.({
     toolCall: { name: tool },
     args: path === undefined ? {} : { path },
@@ -34,17 +32,18 @@ async function checkPath(tool: string, path?: string) {
 }
 
 describe("scoped tools", () => {
-  test("allows src/test paths and blocks sibling, absolute, and symlink escapes", async () => {
+  test("allows workspace paths and blocks outside, absolute, and symlink escapes", async () => {
     expect(await checkPath("read", "src/file.ts")).toBeUndefined();
-    expect((await checkPath("grep", "log"))?.block).toBe(true);
+    expect(await checkPath("write", "package.json")).toBeUndefined();
+    expect((await checkPath("grep", "../outside"))?.block).toBe(true);
     expect((await checkPath("write", "/etc/passwd"))?.block).toBe(true);
 
-    const { root, roots } = await createWorkspace();
+    const root = await createWorkspace();
     await symlink(homedir(), join(root, "src", "home"));
     const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
       steer: () => {},
     };
-    scopeToolCalls(agent, roots);
+    scopeToolCalls(agent, root);
     const escaped = await agent.beforeToolCall?.({
       toolCall: { name: "edit" },
       args: { path: "src/home/.profile" },
@@ -52,16 +51,16 @@ describe("scoped tools", () => {
     expect(escaped?.block).toBe(true);
   });
 
-  test("blocks grep without a path", async () => {
-    expect((await checkPath("grep"))?.block).toBe(true);
+  test("resolves a missing path to the workspace root", async () => {
+    expect(await checkPath("grep")).toBeUndefined();
   });
 
   test("leaves one finalization turn after the configured limit", async () => {
-    const { roots } = await createWorkspace();
+    const root = await createWorkspace();
     const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
       steer: () => {},
     };
-    scopeToolCalls(agent, roots, 1);
+    scopeToolCalls(agent, root, 1);
     const context = {
       toolCall: { name: "get_story" },
       args: { id: 1 },
@@ -78,12 +77,12 @@ describe("scoped tools", () => {
   });
 
   test("warns at 70% and 85% of the budget", async () => {
-    const { roots } = await createWorkspace();
+    const root = await createWorkspace();
     const warnings: unknown[] = [];
     const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
       steer: (message) => warnings.push(message),
     };
-    scopeToolCalls(agent, roots, 10);
+    scopeToolCalls(agent, root, 10);
     const context = {
       toolCall: { name: "get_story" },
       args: { id: 1 },
@@ -110,11 +109,11 @@ describe("scoped tools", () => {
   });
 
   test("does not count story writes toward the tool limit", async () => {
-    const { roots } = await createWorkspace();
+    const root = await createWorkspace();
     const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
       steer: () => {},
     };
-    scopeToolCalls(agent, roots, 1);
+    scopeToolCalls(agent, root, 1);
     const call = (name: string) =>
       agent.beforeToolCall?.({ toolCall: { name }, args: {} } as never);
 
@@ -129,11 +128,11 @@ describe("scoped tools", () => {
   });
 
   test("does not count screenshot evidence toward the tool limit", async () => {
-    const { roots } = await createWorkspace();
+    const root = await createWorkspace();
     const agent: Pick<Agent, "beforeToolCall" | "steer"> = {
       steer: () => {},
     };
-    scopeToolCalls(agent, roots, 1);
+    scopeToolCalls(agent, root, 1);
     const call = (action: string) =>
       agent.beforeToolCall?.({
         toolCall: { name: "browser" },

@@ -136,7 +136,7 @@ test("counts tool calls, compactions, and per-call tokens with ttft", async () =
   expect(summary.agents.tester.toolCalls).toBe(2);
   expect(summary.agents.tester.compactions).toBe(1);
   expect(summary.agents.tester.callLog).toEqual([
-    { input: 5, output: 2, ttftMs: expect.any(Number) },
+    { input: 5, output: 2, ttftSeconds: expect.any(Number) },
   ]);
 });
 

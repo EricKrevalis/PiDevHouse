@@ -93,11 +93,12 @@ async function readSummary(
 ): Promise<{ summary: Summary | null; error?: string }> {
   if (!directory) return { summary: null, error: "Run directory missing" };
   try {
-    return {
-      summary: JSON.parse(
-        await readFile(resolve(directory, "summary.json"), "utf8"),
-      ) as Summary,
-    };
+    const summary = JSON.parse(
+      await readFile(resolve(directory, "summary.json"), "utf8"),
+    ) as Summary;
+    for (const agent of Object.values(summary.agents))
+      delete (agent as { callLog?: unknown }).callLog;
+    return { summary };
   } catch (cause) {
     return {
       summary: null,
