@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { z } from "zod";
 import { defaultConfig, type Config } from "../src/modules/models/config.model";
 import type { Summary } from "../src/modules/services/summaryCollector";
-import { run, slugify } from "../src/runtime/workflow";
+import { run } from "../src/runtime/workflow";
 import type { Message } from "../src/modules/models/message.model";
 
 const coreRoot = resolve(import.meta.dirname, "..");
@@ -28,12 +28,11 @@ const taskSchema = z
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
     request: z.string().min(1),
     repeat: z.number().int().min(1).max(20),
-    variants: z.array(variantSchema).min(1).optional(),
+    variants: z.array(variantSchema).min(1),
   })
   .strict();
 const specSchema = z
   .object({
-    variants: z.array(variantSchema).min(1),
     tasks: z.array(taskSchema).min(1),
   })
   .strict()
@@ -53,7 +52,7 @@ const workerSchema = z.object({
 });
 type Trial = {
   task: Spec["tasks"][number];
-  variant: Spec["variants"][number];
+  variant: Spec["tasks"][number]["variants"][number];
   run: number;
 };
 
@@ -72,7 +71,7 @@ type Result = {
 
 export function trialsForExperiment(spec: Spec): Trial[] {
   return spec.tasks.flatMap((task) =>
-    (task.variants ?? spec.variants).flatMap((variant) =>
+    task.variants.flatMap((variant) =>
       Array.from({ length: task.repeat }, (_, index) => ({
         task,
         variant,
@@ -132,11 +131,7 @@ async function runExperiment(
         Math.max(max, Number(/^experiment-(\d+)$/.exec(name)?.[1] ?? 0)),
       0,
     ) + 1;
-  const experimentRoot = resolve(
-    runsRoot,
-    `experiment-${execution}`,
-    slugify(spec.tasks.map((task) => task.name).join("-")),
-  );
+  const experimentRoot = resolve(runsRoot, `experiment-${execution}`);
   await mkdir(experimentRoot, { recursive: true });
   const reportPath = resolve(experimentRoot, "experiment.json");
   const results: Result[] = [];
@@ -145,7 +140,7 @@ async function runExperiment(
   const environment = {
     gitCommit: gitOutput("rev-parse", "HEAD"),
     gitDirty: gitStatus === null ? null : gitStatus.length > 0,
-    ollamaModel: process.env.OLLAMA_MODEL ?? null,
+    llamaModel: process.env.LLAMA_MODEL ?? null,
     bunVersion: Bun.version,
   };
   const writeReport = (endedAt?: string) =>
@@ -170,7 +165,7 @@ async function runExperiment(
         outputDir: outputDir as Config["outputDir"],
       };
       onStatus?.(
-        `[${task.name}/${variant.name} ${runIndex}/${spec.repeat}] starting`,
+        `[${task.name}/${variant.name} ${runIndex}/${task.repeat}] starting`,
       );
 
       let success = false;
@@ -209,7 +204,7 @@ async function runExperiment(
       allSuccessful &&= success;
       await writeReport();
       onStatus?.(
-        `[${task.name}/${variant.name} ${runIndex}/${spec.repeat}] ${formatRunStatus(summary, error)}`,
+        `[${task.name}/${variant.name} ${runIndex}/${task.repeat}] ${formatRunStatus(summary, error)}`,
       );
       onElapsed?.(Math.floor((Date.now() - trialStartedAt) / 1000));
   }
@@ -373,7 +368,7 @@ async function main(): Promise<void> {
 
   if (process.argv.includes("--dry-run")) {
     const variantNames = new Set(
-      spec.tasks.flatMap((task) => (task.variants ?? spec.variants).map((v) => v.name)),
+      spec.tasks.flatMap((task) => task.variants.map((v) => v.name)),
     );
     process.stdout.write(
       `${trialsForExperiment(spec).length} runs: ${spec.tasks.map((task) => `${task.name}(${task.repeat})`).join(", ")} × ${[...variantNames].join(", ")}\n`,
