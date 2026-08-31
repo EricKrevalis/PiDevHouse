@@ -1,0 +1,12 @@
+{
+  "repeat": 3,
+  "variants": [
+    {
+      "request": "make a basic calculator app",
+      "flags": {
+        "max-iterations": 4,
+        "min-score": 75
+      }
+    }
+  ]
+}

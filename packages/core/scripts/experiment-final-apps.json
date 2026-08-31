@@ -1,0 +1,17 @@
+{
+  "repeat": 1,
+  "variants": [
+    {
+      "request": "make a basic calculator app",
+      "flags": { "max-iterations": 4, "min-score": 75 }
+    },
+    {
+      "request": "make a basic todo list app",
+      "flags": { "max-iterations": 4, "min-score": 75 }
+    },
+    {
+      "request": "make a basic unit converter app",
+      "flags": { "max-iterations": 4, "min-score": 75 }
+    }
+  ]
+}
