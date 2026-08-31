@@ -1,6 +1,6 @@
 # Model tuning
 
-Last updated 2026-08-30.
+Last updated 2026-08-31.
 
 Remote host: `jupyter-infwge957` (100.119.46.106), reached over tailscale.
 `jupyter_scripts/` provisions it.
@@ -75,11 +75,10 @@ completed faster (about 65 min vs about 91 min per run) at similar tok/s and
 completion rate. Only measured for the mtp/iq3s families so far, not q3kxl.
 
 MTP draft model on qwen3.8 does not pay off: no draft (baseline) is the
-fastest of the three and, together with `draft_num_predict 2`, tied for most
-reliable (both 2/2 clean); a deeper draft (`draft_num_predict 4`) is both
-slower and the only one of the three with a run that never finished.
+fastest of the three, and on valid runs all three variants finished clean.
 Attaching a draft model spends VRAM and wall time without a decoding speed
-win here.
+win here. The earlier claim that `draft_num_predict 4` was the least reliable
+did not survive reclassification, see the correction in the MTP section below.
 
 Thinking level, tested on `qwen3.6-mtp-tuned` and `qwen3.8-iq3s-tuned`: `low`
 is the only level that finished clean on both models. `medium` and `high` get
@@ -107,6 +106,39 @@ here, only a slower and shakier one.
   default (`xhigh`, seen only when no effort is specified at all) was never
   actually in play historically.
 
+## Reliability and measurement fixes (2026-08-31)
+
+Applied after comparing against Kilian's `refactor/rebuild` branch. Full
+comparison and the ranked port list are in the handin folder,
+`ki/research/kilian-rebuild-comparison-2026-08-31.md`.
+
+- **The timeout path skipped the verdict write.** `agent.model.ts` returned
+  as soon as the time budget fired, before `afterPrompt`, so the tester's
+  write-your-result nudge never ran on the one path that actually kills runs.
+  A gate agent that records nothing burns an iteration silently and blocks the
+  story. The nudge now runs after the abort, under its own 90s deadline.
+- The reviewer got the same before/after verdict check the tester already had,
+  and a prompt rule that it reports findings rather than fixing them.
+- Transport retry (2 attempts, 1s base) for the ollama host, which is reached
+  over tailscale; a dropped request used to end the invocation with no verdict.
+- bash commands now default to a 300 second timeout, overridable per call. The
+  library ships no default, so a foreground command that never returned held
+  the agent until its whole budget was gone. Of 4710 tool calls across the
+  corpus exactly two exceeded 300s, at 983s and 1055s, and both killed a run.
+- The developer prompt now states that open findings outrank everything else
+  on a rework run.
+- Every `summary.json` now carries an `environment` block (thinking level,
+  context window, max tokens, ollama host, commit). Before this the sweep's own
+  manipulated variable survived only in the output directory name.
+- Per-agent `timedOutInvocations`, `longestInvocationMs` and
+  `longestToolCallMs`, plus per-story `silentGates`.
+- `experimentAggregator` splits `modelFailureRate` from `infraFailureRate` and
+  reports duration and token stats over valid runs only, so one hung command
+  can no longer inflate a variant's mean.
+- `scripts/reclassifyRuns.ts` rebuilds those timings from `outputlog.jsonl` for
+  runs recorded before the fields existed, using the same classifier as the
+  live aggregator. This is what produced the two corrections below.
+
 ## MTP draft model on qwen3.8 (2026-08-27, done)
 
 Tested whether attaching a real speculative-decoding draft model helps the
@@ -124,15 +156,27 @@ default at the time). Reports under `output/mtp-baseline-run{1,2}`,
 | mtp4 (draft_num_predict 4) | 1  | 4037s    | completed  | 2/2 tested, 100/100          |
 | mtp4 (draft_num_predict 4) | 2  | 10904s   | incomplete | 2/3 tested 100/100, 1 blocked at 0 |
 
-Baseline and mtp2 both finished clean 2/2; baseline was the fastest of the
-three on average (4199s vs 4589s for mtp2). At `draft_num_predict 4`, mtp4
-produced the one run in this batch that never finished (a story got stuck
-at `blocked` after 4 iterations, reasoning tokens for that run were about
-212k against 73k-155k for the other five). A deeper draft did not speed
-anything up here and made mtp4 the least reliable of the three. Conclusion:
-skip the draft model for `qwen3.8`, the speculative decoding is not earning back its
-VRAM and wall-time cost. `qwen3.8-iq3s-mtp2-tuned` / `-mtp4-tuned` stay on
-the node for reference but are not worth promoting into regular use.
+**Corrected 2026-08-31.** The reliability half of this comparison was wrong.
+`mtp4-run2` did not fail on the model: a single reviewer bash call ran 983s
+and held the invocation until it hit the 20 minute budget, so the run is an
+infrastructure failure and is not evidence about `draft_num_predict 4`.
+Reproduce with `bun --cwd packages/core scripts/reclassifyRuns.ts`, which
+classifies it `tool_hang`.
+
+On valid runs the batch reads: baseline 2/2 clean, mtp2 2/2 clean, mtp4 1/1
+clean. mtp4 is tied with the other two, not the least reliable of the three.
+Dropping the 10904s infrastructure run also moves the duration comparison:
+mtp4's remaining sample is 4037s, inside baseline's own 3651-4747s spread,
+so the batch no longer shows mtp4 as slower either. Baseline was still the
+fastest on average across its two runs (4199s vs 4589s for mtp2).
+
+Conclusion, on the half that survives: skip the draft model for `qwen3.8`.
+The speculative decoding is not earning back its VRAM cost, and it produced
+no decoding speed win. That argument never depended on the reliability claim.
+`qwen3.8-iq3s-mtp2-tuned` / `-mtp4-tuned` stay on the node for reference but
+are not worth promoting into regular use. Reliability across these three
+variants is now untested, n=1 or 2 per variant with no failure attributable
+to any of them.
 
 ## Thinking level sweep (2026-08-28, done)
 
@@ -156,24 +200,43 @@ repeats per level, same calculator app spec. Reports under
 | 3.8   | high   | 1   | 8852s    | incomplete (blocked at score 0, 1 story never started) |
 | 3.8   | high   | 2   | 10193s   | incomplete (blocked at score 0, 1 story never started) |
 
-Completion rate by level: low 4/4, medium 3/4, high 1/4. Average duration on
-the runs that did finish also goes up with the level (3.6: about 1347s at
-low vs about 2718s at medium/high combined; 3.8: about 4824s at low vs about
-5410s at medium; high never finished either run, so no average to compare).
+**Corrected 2026-08-31.** One of the four failures was infrastructure, not
+the model: `thinking-3.6-high-run2` lost a reviewer invocation to a single
+1055s bash call. Excluding it, completion rate by level on valid runs is
+low 4/4, medium 3/4, high **1/3** (was 1/4). Average duration on the runs
+that did finish still goes up with the level (3.6: about 1347s at low vs
+about 2718s at medium/high combined; 3.8: about 4824s at low vs about 5410s
+at medium; high never finished either 3.8 run, so no average to compare).
 
-Every incomplete run failed the same way: the tester agent got stuck in a
-long back and forth debugging a real UI bug (in one case a genuine CSS
-centering/overflow bug in the generated calculator layout), burned through
-its reasoning budget, and the run was aborted mid turn before it ever wrote
-a test result, leaving the story `blocked` and the remaining stories
-untouched. The two `high` runs on `qwen3.8` had by far the highest reasoning
-token counts in the whole sweep (about 252k and 299k, versus roughly
-6k-136k across the other ten runs), which lines up with this: more reasoning effort
-did not make the tester agent solve the UI bug faster, it just spent longer
-circling it and ran out of budget more often.
+The claim that every incomplete run failed the same way was wrong. Three
+distinct mechanisms, from `scripts/reclassifyRuns.ts`:
 
-Conclusion: `low` is the setting to use. It was the only level that finished
-clean on both models, and it was also the fastest. `medium` (the prior
+- **tool hang (infrastructure), 1 run.** `3.6-high-run2`, a 1055s reviewer
+  bash call (an inline `node -e` http server) that never returned.
+- **budget overrun in the model, 2 runs.** Both `3.8-high` runs, no tool call
+  over 9s. `run1` lost 2 invocations to the 20 minute budget, `run2` lost 5.
+  This is the genuine model-behaviour failure and it is the strongest evidence
+  in the sweep.
+- **turn ended without a verdict, 1 run.** `3.6-medium-run2`, no timeout and
+  no long tool call; the gate simply finished without writing a result.
+
+The failure shape that is common to all of them is the tester or reviewer
+ending an iteration with no written verdict, which burns the iteration
+silently and blocks the story. The two `high` runs on `qwen3.8` had by far
+the highest reasoning token counts in the whole sweep (about 252k and 299k,
+versus roughly 6k-136k across the other ten runs), which still lines up with
+the model-side reading: more reasoning effort did not make the tester solve
+the UI bug faster, it just spent longer circling it and ran out of budget
+more often.
+
+Fixed on 2026-08-31: the timeout path in `agent.model.ts` returned before the
+verdict-write nudge, so a gate that hit the budget could never record a
+result. Runs after that commit are not directly comparable with the ones in
+this table.
+
+Conclusion (unchanged by the correction above): `low` is the setting to use.
+It was the only level that finished clean on both models, and it was also the
+fastest. `medium` (the prior
 default) and `high` add wall time and a real chance the run never finishes,
 without any corresponding gain in test scores (every story that did finish,
 finished at 100/100 regardless of level).
