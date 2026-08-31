@@ -21,8 +21,8 @@ test("publishes retry context", () => {
   });
 });
 
-test("publishes text boundaries only for assistant messages", () => {
-  const messages: Array<{ type: string }> = [];
+test("publishes final thinking and text only for assistant messages", () => {
+  const messages: unknown[] = [];
   let listener: (event: unknown) => void = () => {};
   const bridge = new AgentEventBridge({
     publish: (message: { type: string }) => messages.push(message),
@@ -39,7 +39,19 @@ test("publishes text boundaries only for assistant messages", () => {
 
   listener({ type: "message_end", message: { role: "user" } });
   listener({ type: "message_end", message: { role: "toolResult" } });
-  listener({ type: "message_end", message: { role: "assistant" } });
+  listener({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "Let me check." },
+        { type: "text", text: "Hello" },
+      ],
+    },
+  });
 
-  expect(messages.map((message) => message.type)).toEqual(["text_end"]);
+  expect(messages).toMatchObject([
+    { type: "thinking", thinking: "Let me check.", agent: "developer" },
+    { type: "text", text: "Hello", agent: "developer" },
+  ]);
 });

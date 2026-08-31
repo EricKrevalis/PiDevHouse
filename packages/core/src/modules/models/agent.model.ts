@@ -84,7 +84,9 @@ export abstract class Agent {
     try {
       const customTools = this.buildCustomTools();
       if (this.tools.includes("bash")) {
-        customTools.push(createSandboxedBashTool(this.workspace) as ToolDefinition);
+        customTools.push(
+          createSandboxedBashTool(this.workspace) as ToolDefinition,
+        );
       }
 
       const { session } = await createAgentSession({
@@ -92,18 +94,21 @@ export abstract class Agent {
         model: this.modelProvider.model,
         modelRuntime: this.modelProvider.modelRuntime,
         thinkingLevel: "medium",
-        tools: [...new Set([...this.tools, ...customTools.map((tool) => tool.name)])],
+        tools: [
+          ...new Set([...this.tools, ...customTools.map((tool) => tool.name)]),
+        ],
         customTools,
         resourceLoader: resourceLoader,
-      sessionManager: SessionManager.inMemory(),
-      settingsManager: SettingsManager.inMemory({
-        retry: { enabled: true, maxRetries: 2, baseDelayMs: 1_000 },
-      }),
+        sessionManager: SessionManager.inMemory(),
+        settingsManager: SettingsManager.inMemory({
+          retry: { enabled: true, maxRetries: 2, baseDelayMs: 1_000 },
+        }),
       });
       this.session = session;
 
       scopeToolCalls(session.agent, this.workspace, this.config.maxToolCalls);
       trimToolOutputs(session.agent);
+      this.customizeSession(session);
       this.eventBridge.attach(session, {
         agent: this.name,
         storyId,
@@ -121,6 +126,8 @@ export abstract class Agent {
   }
 
   protected async cleanup(): Promise<void> {}
+
+  protected customizeSession(_session: AgentSession): void {}
 
   async close(): Promise<void> {
     const session = this.session;

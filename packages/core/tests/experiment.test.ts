@@ -49,14 +49,13 @@ test("shows the underlying run error in experiment status", () => {
   ).toBe("error · model load timed out");
 });
 
-test("coalesces streamed worker text", async () => {
+test("forwards worker messages across chunk boundaries", async () => {
   const messages: unknown[] = [];
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const text = [
         '{"type":"message","message":{"type":"text_delta","agent":"developer","delta":"work","timestamp":"now"}}',
-        '{"type":"message","message":{"type":"text_delta","agent":"developer","delta":"ing","timestamp":"now"}}',
-        '{"type":"message","message":{"type":"text_end","agent":"developer","timestamp":"now"}}',
+        '{"type":"message","message":{"type":"text","agent":"developer","text":"working","timestamp":"now"}}',
         '{"type":"message","message":{"type":"elapsed","seconds":2,"timestamp":"now"}}',
       ].join("\n") + "\n";
       controller.enqueue(new TextEncoder().encode(text.slice(0, 30)));
@@ -71,10 +70,10 @@ test("coalesces streamed worker text", async () => {
     {
       type: "text_delta",
       agent: "developer",
-      delta: "working",
+      delta: "work",
       timestamp: "now",
     },
-    { type: "text_end", agent: "developer", timestamp: "now" },
+    { type: "text", agent: "developer", text: "working", timestamp: "now" },
     { type: "elapsed", seconds: 2, timestamp: "now" },
   ]);
 });

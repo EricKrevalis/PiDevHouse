@@ -1,3 +1,4 @@
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { Path } from "typescript";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Agent } from "../../models/agent.model";
@@ -6,6 +7,7 @@ import type { LlamaProvider } from "../../models/llamaProvider.model";
 import type { StoryRepository } from "../../repository/story.repository";
 import type { AgentEventBridge } from "../../services/agentEventBridge";
 import type { SummaryCollector } from "../../services/summaryCollector";
+import { evictStaleToolResults } from "../../tools/evict";
 import { createUpdateStoryStatusTool } from "../../tools/storys/updateStoryStatus";
 import { createBrowserTool } from "../../tools/browser";
 import {
@@ -46,6 +48,14 @@ export class TesterAgent extends Agent {
       storyRepository,
     });
     this.storyId = storyId;
+  }
+
+  protected override customizeSession(session: AgentSession): void {
+    const previous = session.agent.transformContext;
+    const evict = evictStaleToolResults();
+    session.agent.transformContext = async (messages, signal) =>
+      evict(previous ? await previous(messages, signal) : messages);
+    session.settingsManager.setCompactionEnabled(false);
   }
 
   override buildCustomTools(): ToolDefinition[] {

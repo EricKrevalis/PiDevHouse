@@ -29,17 +29,15 @@ export function reduceActivity(
         { type: "text", text: last.text + message.delta },
       ];
     }
-    case "text_end": {
-      let next = entries;
-      const last = next.at(-1);
-      if (last?.type === "text") {
-        const text = last.text.trimEnd();
-        if (text !== last.text) {
-          next = text
-            ? [...next.slice(0, -1), { type: "text", text }]
-            : next.slice(0, -1);
-        }
-      }
+    case "text": {
+      const text = message.text.trimEnd();
+      const last = entries.at(-1);
+      const next: ActivityEntry[] =
+        last?.type === "text"
+          ? [...entries.slice(0, -1), { type: "text", text }]
+          : text
+            ? [...entries, { type: "text", text }]
+            : entries;
       const end = next.at(-1);
       return end?.type === "text" && end.text === ""
         ? next
@@ -132,6 +130,7 @@ export function reduceActivity(
         ...entries,
         { type: "text", text: `stories: ${message.totalStories}` },
       ];
+    case "thinking":
     case "thinking_start":
     case "thinking_end":
     case "elapsed":

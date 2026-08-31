@@ -56,7 +56,16 @@ export class AgentEventBridge {
         case "message_end":
           if (event.message.role === "assistant") {
             flush();
-            publish({ type: "text_end" });
+            const thinking = event.message.content
+              .filter((block): block is { type: "thinking"; thinking: string } => block.type === "thinking")
+              .map((block) => block.thinking)
+              .join("\n");
+            const text = event.message.content
+              .filter((block): block is { type: "text"; text: string } => block.type === "text")
+              .map((block) => block.text)
+              .join("\n");
+            if (thinking) publish({ type: "thinking", thinking });
+            if (text) publish({ type: "text", text });
           }
           break;
         case "message_update":
@@ -75,6 +84,14 @@ export class AgentEventBridge {
               flushTimer ??= setTimeout(flush, 100);
               break;
           }
+          break;
+        case "compaction_end":
+          publish({
+            type: "compaction_end",
+            reason: event.reason,
+            aborted: event.aborted,
+            willRetry: event.willRetry,
+          });
           break;
         case "tool_execution_start":
           flush();

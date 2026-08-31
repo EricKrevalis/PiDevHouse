@@ -17,8 +17,8 @@ test("keeps one separator around a text response", () => {
       { ...scope, type: "agent_start" },
       { ...scope, type: "text_delta", delta: "Working" },
       { ...scope, type: "text_delta", delta: " on it\n\n" },
-      { ...scope, type: "text_end" },
-      { ...scope, type: "text_end" },
+      { ...scope, type: "text", text: "Working on it\n\n" },
+      { ...scope, type: "text", text: "" },
     ]),
   ).toEqual([
     { type: "agent", agent: "developer" },
@@ -33,7 +33,7 @@ test("keeps one separator through tool transitions", () => {
     render([
       { ...scope, type: "agent_start" },
       { ...scope, type: "text_delta", delta: "Checking.\n" },
-      { ...scope, type: "text_end" },
+      { ...scope, type: "text", text: "Checking.\n" },
       {
         ...scope,
         type: "tool_start",
@@ -49,7 +49,7 @@ test("keeps one separator through tool transitions", () => {
         isError: false,
       },
       { ...scope, type: "text_delta", delta: "Finished.\n" },
-      { ...scope, type: "text_end" },
+      { ...scope, type: "text", text: "Finished.\n" },
     ]),
   ).toEqual([
     { type: "agent", agent: "developer" },

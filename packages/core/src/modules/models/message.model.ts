@@ -10,9 +10,16 @@ export type AgentEvent =
   | { type: "agent_end" }
   | { type: "agent_retry"; message: string }
   | { type: "text_delta"; delta: string }
-  | { type: "text_end" }
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string }
   | { type: "thinking_start" }
   | { type: "thinking_end" }
+  | {
+      type: "compaction_end";
+      reason: "manual" | "threshold" | "overflow";
+      aborted: boolean;
+      willRetry: boolean;
+    }
   | {
       type: "tool_start";
       toolCallId: string;

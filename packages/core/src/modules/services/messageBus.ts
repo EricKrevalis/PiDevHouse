@@ -6,6 +6,14 @@ import { LOG_FILE } from "../models/config.model.ts";
 
 type Listener = (message: Message) => void;
 
+// Streaming/markup events: needed by the TUI, not by the log.
+const UNLOGGED = new Set<Message["type"]>([
+  "elapsed",
+  "text_delta",
+  "thinking_start",
+  "thinking_end",
+]);
+
 export class MessageBus {
   private readonly listeners = new Set<Listener>();
   private readonly logFile: Path;
@@ -16,7 +24,7 @@ export class MessageBus {
   }
 
   publish(message: Message): void {
-    if (this.logFile && message.type !== "elapsed") this.log(message);
+    if (this.logFile && !UNLOGGED.has(message.type)) this.log(message);
     for (const listener of this.listeners) listener(message);
   }
 

@@ -312,36 +312,18 @@ export async function forwardWorkerMessages(
 
   const decoder = new TextDecoder();
   let pending = "";
-  let pendingText: Extract<Message, { type: "text_delta" }> | undefined;
-  const forward = (message: Message) => {
-    if (message.type === "text_delta") {
-      pendingText = pendingText
-        ? { ...pendingText, delta: pendingText.delta + message.delta }
-        : message;
-      return;
-    }
-    if (message.type === "text_end" && pendingText) {
-      onMessage(pendingText);
-      pendingText = undefined;
-    }
-    onMessage(message);
+  const handle = (line: string) => {
+    if (!line) return;
+    const event = JSON.parse(line) as { type: "message"; message: Message };
+    if (event.type === "message") onMessage(event.message);
   };
   for await (const chunk of stream) {
     pending += decoder.decode(chunk, { stream: true });
     const lines = pending.split("\n");
     pending = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line) continue;
-      const event = JSON.parse(line) as { type: "message"; message: Message };
-      if (event.type === "message") forward(event.message);
-    }
+    for (const line of lines) handle(line);
   }
-  pending += decoder.decode();
-  if (pending) {
-    const event = JSON.parse(pending) as { type: "message"; message: Message };
-    if (event.type === "message") forward(event.message);
-  }
-  if (pendingText) onMessage(pendingText);
+  handle(pending + decoder.decode());
 }
 
 async function main(): Promise<void> {
