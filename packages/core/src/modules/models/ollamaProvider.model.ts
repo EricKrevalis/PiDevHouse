@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -122,15 +123,57 @@ export class OllamaProvider {
     const response = await fetch(`${this.ollamaHost}/api/ps`, {
       signal,
     });
-    if (!response.ok) {
+    if (response.ok) {
+      const data = (await response.json()) as { models: LoadedModel[] };
+      const baseName = this.modelId.split(":")[0];
+      return data.models.find(
+        (model) =>
+          model.name === this.modelId ||
+          (!this.modelId.includes(":") && model.name === `${baseName}:latest`),
+      );
+    }
+    if (response.status !== 404) {
       throw new Error(`Ollama /api/ps returned HTTP ${response.status}`);
     }
-    const data = (await response.json()) as { models: LoadedModel[] };
-    const baseName = this.modelId.split(":")[0];
-    return data.models.find(
-      (model) =>
-        model.name === this.modelId ||
-        (!this.modelId.includes(":") && model.name === `${baseName}:latest`),
-    );
+    return this.getLoadedLlamaServer(signal);
+  }
+
+  // llama-server exposes no Ollama API; it is a single-model server, so a
+  // reachable /props with /slots present means the model is loaded. The
+  // context budget is the sum of the per-slot contexts. With -ngl >= n_layer
+  // the server either fits the whole model on the GPU or fails at startup,
+  // so reporting the model file size as fully on-GPU keeps the preflight's
+  // VRAM check honest.
+  private async getLoadedLlamaServer(
+    signal?: AbortSignal,
+  ): Promise<LoadedModel | undefined> {
+    const propsResponse = await fetch(`${this.ollamaHost}/props`, { signal });
+    if (!propsResponse.ok) {
+      throw new Error(
+        `model server ${this.ollamaHost} exposes neither /api/ps (HTTP ${propsResponse.status}) nor /props`,
+      );
+    }
+    const props = (await propsResponse.json()) as { model_path?: string };
+    const slots = (await (
+      await fetch(`${this.ollamaHost}/slots`, { signal })
+    ).json()) as { n_ctx?: number }[];
+    const contextLength = slots.reduce((n, s) => n + (s.n_ctx ?? 0), 0);
+    const size = this.modelFileSize(props.model_path);
+    return {
+      name: this.modelId,
+      context_length: contextLength > 0 ? contextLength : undefined,
+      ...(size !== undefined
+        ? { size, size_total: size, size_vram: size }
+        : {}),
+    };
+  }
+
+  private modelFileSize(modelPath?: string): number | undefined {
+    if (!modelPath) return undefined;
+    try {
+      return statSync(modelPath).size;
+    } catch {
+      return undefined;
+    }
   }
 }
