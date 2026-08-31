@@ -6,7 +6,7 @@ This document consolidates the findings from the experiment-3 log analysis, the 
 
 | Priority | Area | Finding and evidence | Impact |
 | --- | --- | --- | --- |
-| P0 | Time to first token | TTFT is 353–2088s per run (38% of the 4318s outlier). The reviewer is worst: 67 LLM calls, 1.73M input tokens (65% of the run total), context grown to ~48k/call; reviewer = 60% of baseline-run-1. Agents alternate on one Ollama slot, so llama.cpp's prefix cache is evicted between turns and each agent re-processes its whole context. | The dominant wall-clock cost is re-evaluated prompt, not generation (uniform 38–46 tok/s) or tool execution (2–52s per run across 167–205 calls). |
+| P0 | Time to first token | TTFT is 353–2088s per run (38% of the 4318s outlier). The reviewer is worst: 67 LLM calls, 1.73M input tokens (65% of the run total), context grown to ~48k/call; reviewer = 60% of baseline-run-1. Agents alternate on one server slot, so llama.cpp's prefix cache is evicted between turns and each agent re-processes its whole context. | The dominant wall-clock cost is re-evaluated prompt, not generation (uniform 38–46 tok/s) or tool execution (2–52s per run across 167–205 calls). |
 | P1 | Rework loops | A failed review replays the full developer+reviewer cycle (+1800s in the outlier) and each iteration starts a fresh developer session (storyLoop.ts:81) that rediscovers context. | Runs needing 2–3 iterations pay multiples of the base cost. |
 | P1 | Sandbox flailing | Reviewers repeatedly wrote fixtures to `/tmp` (read-only in bwrap): 5–6 failed bash calls × a full generation each, ~15 min in one run. 10 "Tool paths must stay inside" violations across runs. | Dead generations that never advance the story. |
 | P1 | Agent lifecycle | 3 `agent_retry` events (reviewer/tester ended without `update_story_status`), costing 152s–229s each. | Retry re-invocations burn full generations. |
@@ -25,11 +25,11 @@ This document consolidates the findings from the experiment-3 log analysis, the 
 
 | Fix | Where |
 | --- | --- |
-| `maxTokens` 8192 → 16384 | ollamaProvider.model.ts:56 |
+| `maxTokens` 8192 → 16384 | llamaProvider.model.ts |
 | Bash default command timeout 300s (model can pass longer) | bash.ts (`DEFAULT_TIMEOUT_SECONDS`) |
-| Ollama retry: 2 attempts, 1s base delay | agent.model.ts (`SettingsManager.inMemory` retry) |
+| LLM retry: 2 attempts, 1s base delay | agent.model.ts (`SettingsManager.inMemory` retry) |
 | Session creation inside try/finally — browser/server cleanup runs even when `createAgentSession` throws; `close()` cleans up without a session | agent.model.ts |
-| Preflight `keep_alive` 5m → 60m, matching server env | ollamaProvider.model.ts:86 |
+| Preflight `keep_alive` 5m → 60m, matching server env | llamaProvider.model.ts |
 | Log writes async (order-preserving promise queue) and `elapsed` heartbeat dropped from log.jsonl | messageBus.ts |
 | Run workspace is `git init`ed with identity and `.gitignore` for `log/`; developer commits exactly once per iteration; reviewer target is `git show HEAD`, reading beyond the diff only when needed | workflow.ts, developerPrompt.md, reviewerPrompt.md |
 | Shared byte-identical system-prompt prefix (`TEAM_PREFIX`) across all four agents for prompt-cache reuse | prompt.ts + agent classes |
@@ -43,7 +43,7 @@ This document consolidates the findings from the experiment-3 log analysis, the 
 | Priority | Item | Note |
 | --- | --- | --- |
 | P1 | No default `runTimeoutSeconds` | Intentionally skipped ("no run timeout"); with the bash timeout now present the hang surface is much smaller, but TUI runs still have no overall deadline. |
-| P1 | Server binding: `ollama serve` binds `0.0.0.0` although tailscale serve only needs localhost | Ops fix in `tailscale.sh`; also make the script self-contained (export `OLLAMA_*` before `serve`) so non-interactive starts keep the tuning. |
+| P1 | Server binding: the model server binds `0.0.0.0` although tailscale serve only needs localhost | Ops fix in `jupyter-serve.sh`; make the script self-contained so non-interactive starts keep the tuning. |
 | P2 | PO retry runs blind | Second PO run (workflow.ts:79-85) gets the identical prompt without the failure reason. |
 | P2 | Resource loader reloaded per agent per iteration | agent.model.ts:76-81; small measured win. |
 | P2 | Quant bump UD-Q3_K_XL | Only if review-quality failures persist after the token/prompt fixes — needs a new experiment to decide. |
