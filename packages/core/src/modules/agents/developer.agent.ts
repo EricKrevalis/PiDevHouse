@@ -38,7 +38,7 @@ export class DeveloperAgent extends Agent {
       userPrompt: `Deliver story ${storyId} as the smallest complete change matching existing patterns.
 
 ## Process
-1. Read ${storiesPath} with its review and test findings, AGENTS.md, the relevant code, and affected callers.
+1. Read ${storiesPath} with its review and test findings, AGENTS.md, the relevant code, and affected callers. Read the open findings before touching any code: on a rework run, clearing them is your first priority and nothing else in the story outranks them.
 1a. If the story's reviewResult already shows a passing score, preserve that approved code and make the smallest targeted change addressing only the findings still open (e.g. outstanding test failures); do not restructure or rewrite code that already passed review.
 2. Set status to "in_progress" via update_story_fields before your first edit; stories.json changes only through that tool.
 3. Meet every criterion and fix every prior finding; each line of the diff traces to this story.

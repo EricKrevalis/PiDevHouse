@@ -1,8 +1,18 @@
-import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
+import {
+  type BashOperations,
+  createBashToolDefinition,
+  createLocalBashOperations,
+} from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Workspace } from "../model/workspace.model.ts";
 
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
+
+// the library ships no default timeout, so a foreground command that never
+// returns holds the agent until its whole time budget is gone. 300s clips only
+// genuine hangs: the slowest real tool call recorded so far is under 121s. the
+// model can still pass a longer timeout explicitly.
+export const DEFAULT_TIMEOUT_SECONDS = 300;
 
 const DENIED_COMMANDS = new Set([
   "rm", "mv", "cp", "dd", "shred", "truncate", "touch", "mkdir", "rmdir",
@@ -185,12 +195,30 @@ export function describeSandbox(workspace: Workspace): string {
   const denied = [...DENIED_COMMANDS].sort().join(", ");
   return `## Sandbox
 bash is sandboxed. Absolute paths must stay within ${roots} (e.g. /nix/store is rejected). No command substitution ($(...) or backticks), no > redirection except to /dev/null or 2>&1, no nested shells (bash/sh/zsh -c/-lc). Always denied: ${denied}.
-The check tokenizes the command as shell, so code embedded in a node -e or agent-browser eval flag trips it: backticks and $(...) are always rejected, and => arrows or nested quotes can read as redirection. Run a saved test file (node <file>) or agent-browser's own subcommands instead of embedding a script. chromium and agent-browser are on PATH; call them by name rather than probing bin dirs like /usr/bin or /nix/store, which are outside the sandbox.`;
+Foreground commands time out after ${DEFAULT_TIMEOUT_SECONDS}s unless you pass a longer timeout argument. Start a server in the background with & and probe it with a short foreground command; never run a server in the foreground.
+The check tokenizes the command as shell, so code embedded in a node -e or agent-browser eval flag trips it: backticks and $(...) are always rejected, and => arrows or nested quotes can read as redirection. Run a saved test file (node <file>) or agent-browser's own subcommands instead of embedding a script. agent-browser is on PATH; call it by name rather than probing bin dirs like /usr/bin or /nix/store, which are outside the sandbox. It manages its own browser, so do not launch chromium yourself.`;
+}
+
+// applies DEFAULT_TIMEOUT_SECONDS to any call that names no timeout of its own.
+export function withDefaultTimeout(
+  operations: BashOperations,
+  seconds: number = DEFAULT_TIMEOUT_SECONDS,
+): BashOperations {
+  return {
+    exec: (command, cwd, options) =>
+      operations.exec(command, cwd, {
+        ...options,
+        timeout: options.timeout ?? seconds,
+      }),
+  };
 }
 
 export function createSandboxedBashTool(workspace: Workspace) {
   const allowedRoots = sandboxAllowedRoots(workspace);
   return createBashToolDefinition(workspace.workspaceDir, {
+    // spawnHook has already run by the time operations.exec is called, so the
+    // denylist and the env prefix below still apply to what executes here.
+    operations: withDefaultTimeout(createLocalBashOperations()),
     spawnHook: (context) => {
       const denied = validateBashCommand(
         context.command,

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { it } from "vitest";
 import {
+  DEFAULT_TIMEOUT_SECONDS,
+  withDefaultTimeout,
   describeSandbox,
   sandboxAllowedRoots,
   validateBashCommand,
@@ -107,6 +109,24 @@ it("allows the one-call browser test flow with a CDP port", () => {
     "pkill -f http.server 2>/dev/null",
   ].join("; ");
   assert.equal(validateBashCommand(command, allowedRoots), null);
+});
+
+it("allows the session-based browser test flow the tester prompt ships", () => {
+  // the recipe in tester.agent.ts step 3, one command per bash call.
+  const commands = [
+    "cd /output/run/test && python3 -m http.server 8901 >/dev/null 2>&1 &",
+    "agent-browser --session s1 open http://localhost:8901/index.html",
+    "agent-browser --session s1 snapshot -i",
+    "agent-browser --session s1 click @e1",
+    "agent-browser --session s1 get text '#display'",
+    "agent-browser --session s1 screenshot --full /output/run/test/story-1.png",
+    "agent-browser --session s1 close",
+    // bracketed so the pattern cannot match the pkill command itself
+    'pkill -f "[h]ttp.server 8901"',
+  ];
+  for (const command of commands) {
+    assert.equal(validateBashCommand(command, allowedRoots), null, command);
+  }
 });
 
 it("allows env-prefixed and computed-port server commands", () => {
@@ -350,4 +370,30 @@ it("gives an honest, denylist-free message for an unidentifiable segment", () =>
   const deniedMessage = validateBashCommand("rm -rf /", allowedRoots);
   assert.ok((deniedMessage ?? "").includes("Denied commands:"));
   assert.notEqual(strayMessage, deniedMessage);
+});
+
+it("defaults the command timeout and keeps an explicit one", async () => {
+  const seen: Array<number | undefined> = [];
+  const wrapped = withDefaultTimeout({
+    exec: async (_command, _cwd, options) => {
+      seen.push(options.timeout);
+      return { exitCode: 0 };
+    },
+  });
+
+  await wrapped.exec("true", "/output/run/src", { onData: () => {} });
+  await wrapped.exec("true", "/output/run/src", {
+    onData: () => {},
+    timeout: 900,
+  });
+
+  assert.deepEqual(seen, [DEFAULT_TIMEOUT_SECONDS, 900]);
+});
+
+it("names the command timeout in the sandbox description", () => {
+  // agents that are not told the default hit it without understanding why.
+  assert.match(
+    describeSandbox(workspace),
+    new RegExp(`time out after ${DEFAULT_TIMEOUT_SECONDS}s`),
+  );
 });
