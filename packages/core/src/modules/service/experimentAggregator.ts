@@ -1,4 +1,8 @@
 import type { Summary } from "../model/summary.model.ts";
+import {
+  classifyFailure,
+  isInfrastructureFailure,
+} from "./failureClassifier.ts";
 
 // reduces experiment.ts's per-run results into per-variant stats across repeats.
 
@@ -23,7 +27,17 @@ export interface VariantAggregate {
   runCount: number;
   failureCount: number;
   failureRate: number;
-  // stats below cover only runs with a summary.
+  // failureRate above mixes model and infrastructure failure; these split it.
+  // a model comparison should read modelFailureRate, never failureRate.
+  modelFailureCount: number;
+  modelFailureRate: number;
+  infraFailureCount: number;
+  infraFailureRate: number;
+  // runs whose outcome is attributable to the model, so their numbers compare.
+  validRunCount: number;
+  failureClasses: Record<string, number>;
+  // stats below cover only valid runs, so one hung command cannot inflate a
+  // variant's mean duration.
   durationSeconds: Stat;
   totalTokens: Stat;
   totalCalls: Stat;
@@ -103,6 +117,30 @@ export function aggregateExperimentResults(
         result.summary ? [result.summary] : [],
       );
       const failureCount = group.filter(isFailure).length;
+      const classes = group.map((result) => classifyFailure(result.summary));
+      const infraFailureCount = classes.filter(isInfrastructureFailure).length;
+      const modelFailureCount = classes.filter(
+        (failureClass) =>
+          failureClass !== "none" &&
+          failureClass !== "cancelled" &&
+          !isInfrastructureFailure(failureClass),
+      ).length;
+      const failureClasses = classes.reduce<Record<string, number>>(
+        (counts, failureClass) => {
+          if (failureClass !== "none") {
+            counts[failureClass] = (counts[failureClass] ?? 0) + 1;
+          }
+          return counts;
+        },
+        {},
+      );
+      // duration and token stats read from valid runs only; an infrastructure
+      // failure says nothing about the model and its wall clock is not its own.
+      const validSummaries = group.flatMap((result) =>
+        result.summary && !isInfrastructureFailure(classifyFailure(result.summary))
+          ? [result.summary]
+          : [],
+      );
 
       let testedStories = 0;
       let totalStories = 0;
@@ -120,13 +158,21 @@ export function aggregateExperimentResults(
         runCount: group.length,
         failureCount,
         failureRate: group.length === 0 ? 0 : failureCount / group.length,
+        modelFailureCount,
+        modelFailureRate:
+          group.length === 0 ? 0 : modelFailureCount / group.length,
+        infraFailureCount,
+        infraFailureRate:
+          group.length === 0 ? 0 : infraFailureCount / group.length,
+        validRunCount: validSummaries.length,
+        failureClasses,
         durationSeconds: stat(
-          withSummary.map((summary) => summary.durationSeconds),
+          validSummaries.map((summary) => summary.durationSeconds),
         ),
-        totalTokens: stat(withSummary.map(runTokens)),
-        totalCalls: stat(withSummary.map(runCalls)),
+        totalTokens: stat(validSummaries.map(runTokens)),
+        totalCalls: stat(validSummaries.map(runCalls)),
         durationPerInvocationMs: stat(
-          withSummary.map(runDurationPerInvocation),
+          validSummaries.map(runDurationPerInvocation),
         ),
         testedStoryRatio: totalStories === 0 ? 0 : testedStories / totalStories,
         callsPerStory: totalStories === 0 ? 0 : totalCallsSum / totalStories,

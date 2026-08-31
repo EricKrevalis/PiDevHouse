@@ -11,7 +11,12 @@ function usage(
   calls: number,
   inputTokens: number,
   outputTokens: number,
-  timing?: { totalDurationMs: number; invocations: number },
+  timing?: {
+    totalDurationMs: number;
+    invocations: number;
+    timedOutInvocations?: number;
+    longestToolCallMs?: number;
+  },
 ): AgentUsage {
   return {
     calls,
@@ -20,6 +25,9 @@ function usage(
     reasoningTokens: 0,
     totalDurationMs: timing?.totalDurationMs ?? 0,
     invocations: timing?.invocations ?? 0,
+    timedOutInvocations: timing?.timedOutInvocations ?? 0,
+    longestInvocationMs: 0,
+    longestToolCallMs: timing?.longestToolCallMs ?? 0,
   };
 }
 
@@ -43,6 +51,12 @@ function summary(overrides: {
     exitCode: 0,
     model: "test",
     config: {},
+    environment: {
+      thinkingLevel: "low",
+      contextWindow: 65_536,
+      maxTokens: 16_384,
+      ollamaHost: "http://localhost:11434",
+    },
     agents: overrides.agents,
     stories: overrides.stories,
   };
@@ -230,7 +244,7 @@ it("counts a variant with no summaries as all failures with null stats", () => {
   assert.equal(aggregate.callsPerStory, 0);
 });
 
-it("treats a non-completed outcome as a failure but still uses its numbers", () => {
+it("excludes an infrastructure failure from the comparable stats", () => {
   const results: ExperimentRunResult[] = [
     run(1, 0, summary({ durationSeconds: 10, agents: { a: usage(1, 10, 10) }, stories: [story(1, "tested")] })),
     run(
@@ -249,10 +263,63 @@ it("treats a non-completed outcome as a failure but still uses its numbers", () 
 
   assert.equal(aggregate.failureCount, 1);
   assert.equal(aggregate.failureRate, 0.5);
-  // both runs feed the stats even though one is a failure
-  assert.equal(aggregate.durationSeconds.mean, 20);
-  assert.equal(aggregate.totalCalls.mean, 2);
+  // the failure is the provider, not the model, so it must not count against it
+  assert.equal(aggregate.infraFailureCount, 1);
+  assert.equal(aggregate.modelFailureCount, 0);
+  assert.equal(aggregate.modelFailureRate, 0);
+  assert.equal(aggregate.validRunCount, 1);
+  assert.deepEqual(aggregate.failureClasses, { provider: 1 });
+  // and its 30s must not inflate the variant's mean duration
+  assert.equal(aggregate.durationSeconds.mean, 10);
+  assert.equal(aggregate.totalCalls.mean, 1);
   assert.equal(aggregate.testedStoryRatio, 0.5);
+});
+
+it("counts a hung tool call as infrastructure and a budget overrun as model", () => {
+  const results: ExperimentRunResult[] = [
+    run(
+      1,
+      1,
+      summary({
+        durationSeconds: 900,
+        outcome: "incomplete",
+        // a command at the bash timeout held the invocation
+        agents: {
+          a: usage(3, 10, 10, {
+            totalDurationMs: 1_200_000,
+            invocations: 1,
+            timedOutInvocations: 1,
+            longestToolCallMs: 983_000,
+          }),
+        },
+        stories: [story(1, "blocked")],
+      }),
+    ),
+    run(
+      1,
+      1,
+      summary({
+        durationSeconds: 900,
+        outcome: "incomplete",
+        // same overrun, no hung command: the time went into the model
+        agents: {
+          a: usage(3, 10, 10, {
+            totalDurationMs: 1_200_000,
+            invocations: 1,
+            timedOutInvocations: 1,
+          }),
+        },
+        stories: [story(1, "blocked")],
+      }),
+    ),
+  ];
+
+  const [aggregate] = aggregateExperimentResults(results);
+
+  assert.equal(aggregate.infraFailureCount, 1);
+  assert.equal(aggregate.modelFailureCount, 1);
+  assert.equal(aggregate.validRunCount, 1);
+  assert.deepEqual(aggregate.failureClasses, { tool_hang: 1, agent_timeout: 1 });
 });
 
 it("returns an empty array for empty input without throwing", () => {

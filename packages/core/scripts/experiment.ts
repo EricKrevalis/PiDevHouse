@@ -234,13 +234,16 @@ async function main(): Promise<void> {
       `${cell(s.mean, digits)}±${cell(s.stddev, digits)}`;
     reportLines.push(
       "\n## Aggregates (per variant, across repeat runs)\n",
-      "| Variant | Runs | Fail rate | Duration | Tokens | Calls | Dur/inv | Calls/story | Tested |",
-      "|---|---|---|---|---|---|---|---|---|",
+      "Duration, tokens and calls cover valid runs only (infrastructure failures excluded).\n",
+      "| Variant | Runs | Valid | Model fail | Infra fail | Duration | Tokens | Calls | Dur/inv | Calls/story | Tested |",
+      "|---|---|---|---|---|---|---|---|---|---|---|",
     );
     for (const aggregate of aggregates) {
       reportLines.push(
         `| ${aggregate.variantIndex} | ${aggregate.runCount} | ${
-          aggregate.failureRate.toFixed(2)
+          aggregate.validRunCount
+        } | ${aggregate.modelFailureRate.toFixed(2)} | ${
+          aggregate.infraFailureRate.toFixed(2)
         } | ${stat(aggregate.durationSeconds)}s | ${
           stat(aggregate.totalTokens, 0)
         } | ${stat(aggregate.totalCalls)} | ${
@@ -248,6 +251,23 @@ async function main(): Promise<void> {
         }ms | ${
           aggregate.callsPerStory.toFixed(2)
         } | ${aggregate.testedStoryRatio.toFixed(2)} |`,
+      );
+    }
+    const classTotals = aggregates.reduce<Record<string, number>>(
+      (counts, aggregate) => {
+        for (const [name, count] of Object.entries(aggregate.failureClasses)) {
+          counts[name] = (counts[name] ?? 0) + count;
+        }
+        return counts;
+      },
+      {},
+    );
+    if (Object.keys(classTotals).length > 0) {
+      reportLines.push(
+        `\nFailure classes: ${Object.entries(classTotals)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, count]) => `${name} ${count}`)
+          .join(", ")}`,
       );
     }
     reportLines.push(`\nExperiment report: ${reportPath}`);
