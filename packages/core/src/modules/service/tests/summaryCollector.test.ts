@@ -55,6 +55,12 @@ async function collectAgents(
     exitCode: 0,
     model: "test",
     config: {},
+    environment: {
+      thinkingLevel: "low",
+      contextWindow: 65_536,
+      maxTokens: 16_384,
+      ollamaHost: "http://localhost:11434",
+    },
     stories: [],
   });
   const summary = JSON.parse(

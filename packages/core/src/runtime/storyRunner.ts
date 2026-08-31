@@ -232,6 +232,7 @@ export class StoryRunner {
           `${silentGates} gate run(s) ended without a written verdict`
         : undefined,
       dependencies.summaryCollector,
+      silentGates,
     );
   }
 
@@ -259,7 +260,14 @@ async function markBlocked(
   runId: string,
   messagePublisher: MessagePublisher,
   reason = "iteration budget exhausted without passing the enabled gates",
-  summaryCollector?: { noteBlocked(params: { storyId: number; reason: string }): void },
+  summaryCollector?: {
+    noteBlocked(params: {
+      storyId: number;
+      reason: string;
+      silentGates?: number;
+    }): void;
+  },
+  silentGates?: number,
 ): Promise<void> {
   const state = await storyStore.read();
   const story = state?.stories.find((item) => item.id === storyId);
@@ -285,7 +293,7 @@ async function markBlocked(
       detail: reason,
       timestamp: new Date().toISOString(),
     });
-    summaryCollector?.noteBlocked({ storyId, reason });
+    summaryCollector?.noteBlocked({ storyId, reason, silentGates });
   }
 }
 

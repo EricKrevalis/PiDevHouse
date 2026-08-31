@@ -18,6 +18,7 @@ interface RunState {
   agents: Map<string, AgentUsage>;
   tracks: Map<number, StoryTrack>;
   blockedReasons: Map<number, string>;
+  silentGates: Map<number, number>;
 }
 
 type RunMetadata = Omit<Summary, "agents" | "stories"> & {
@@ -32,6 +33,9 @@ function freshUsage(): AgentUsage {
     reasoningTokens: 0,
     totalDurationMs: 0,
     invocations: 0,
+    timedOutInvocations: 0,
+    longestInvocationMs: 0,
+    longestToolCallMs: 0,
   };
 }
 
@@ -40,10 +44,18 @@ export class SummaryCollector {
     agents: new Map(),
     tracks: new Map(),
     blockedReasons: new Map(),
+    silentGates: new Map(),
   };
 
-  noteBlocked(params: { storyId: number; reason: string }): void {
+  noteBlocked(params: {
+    storyId: number;
+    reason: string;
+    silentGates?: number;
+  }): void {
     this.state.blockedReasons.set(params.storyId, params.reason);
+    if (params.silentGates !== undefined) {
+      this.state.silentGates.set(params.storyId, params.silentGates);
+    }
   }
 
   attach(
@@ -55,13 +67,27 @@ export class SummaryCollector {
     // start time for THIS invocation, local to this attach() call. the raw
     // session events carry no timestamp, so we bracket with wall-clock.
     let invocationStartedAt: number | undefined;
+    const toolStartedAt = new Map<string, number>();
     session.subscribe((event) => {
+      if (event.type === "tool_execution_start") {
+        toolStartedAt.set(event.toolCallId, Date.now());
+      } else if (event.type === "tool_execution_end") {
+        const startedAt = toolStartedAt.get(event.toolCallId);
+        if (startedAt !== undefined) {
+          toolStartedAt.delete(event.toolCallId);
+          this.recordToolDuration(agent.name, Date.now() - startedAt);
+        }
+      }
       if (event.type === "agent_start") {
         invocationStartedAt = Date.now();
       } else if (event.type === "agent_end") {
         // skip an unmatched agent_end rather than guess a duration.
         if (invocationStartedAt !== undefined) {
-          this.recordDuration(agent.name, Date.now() - invocationStartedAt);
+          this.recordDuration(
+            agent.name,
+            Date.now() - invocationStartedAt,
+            agent.timeoutMinutes,
+          );
           invocationStartedAt = undefined;
         }
       }
@@ -69,11 +95,28 @@ export class SummaryCollector {
     });
   }
 
-  private recordDuration(agentName: string, durationMs: number): void {
+  private recordToolDuration(agentName: string, durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
+    const usage = this.state.agents.get(agentName) ?? freshUsage();
+    usage.longestToolCallMs = Math.max(usage.longestToolCallMs, durationMs);
+    this.state.agents.set(agentName, usage);
+  }
+
+  private recordDuration(
+    agentName: string,
+    durationMs: number,
+    timeoutMinutes = 0,
+  ): void {
     if (!Number.isFinite(durationMs) || durationMs < 0) return;
     const usage = this.state.agents.get(agentName) ?? freshUsage();
     usage.totalDurationMs += durationMs;
     usage.invocations += 1;
+    usage.longestInvocationMs = Math.max(usage.longestInvocationMs, durationMs);
+    // the timer fires at the budget, so an invocation that reaches it was cut
+    // off rather than finished. allow a small margin for the teardown after it.
+    if (timeoutMinutes > 0 && durationMs >= timeoutMinutes * 60_000) {
+      usage.timedOutInvocations += 1;
+    }
     this.state.agents.set(agentName, usage);
   }
 
@@ -156,12 +199,14 @@ export class SummaryCollector {
           testTrajectory: [],
         };
         const blockedReason = state.blockedReasons.get(story.id);
+        const silentGates = state.silentGates.get(story.id);
         return {
           id: story.id,
           title: story.title,
           status: story.status,
           iterations: track.iterations,
           ...(blockedReason ? { blockedReason } : {}),
+          ...(silentGates !== undefined ? { silentGates } : {}),
           ...(reviewerEnabled
             ? {
                 reviewScore: story.reviewResult.score,

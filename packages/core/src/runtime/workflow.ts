@@ -1,7 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentContext } from "../modules/model/agents/agent.model.ts";
+import {
+  thinkingLevelFromEnv,
+  type AgentContext,
+} from "../modules/model/agents/agent.model.ts";
 import { Config } from "../modules/model/config.model.ts";
 import type { MessagePublisher } from "../modules/model/messagePublisher.model.ts";
 import type { ModelProvider } from "../modules/model/providers/modelProvider.model.ts";
@@ -9,6 +12,7 @@ import type { Story } from "../modules/model/story.model.ts";
 import type {
   FailureMode,
   OutcomeClass,
+  RunEnvironment,
 } from "../modules/model/summary.model.ts";
 import type { Workspace } from "../modules/model/workspace.model.ts";
 import type { WorkflowAgentFactory } from "../modules/model/workflowAgentFactory.model.ts";
@@ -20,6 +24,22 @@ import { STORIES_PATH } from "../modules/tools/registry.ts";
 import { StoryStore } from "../modules/tools/story/stories.ts";
 import type { StoryRunner } from "./storyRunner.ts";
 import { Timer } from "./timer.ts";
+
+// the run's independent variables, captured from the environment that actually
+// produced it. recorded in every summary so a run states its own configuration
+// instead of leaving it to the directory name.
+function runEnvironment(modelProvider?: ModelProvider): RunEnvironment {
+  const commit = process.env.GIT_COMMIT ?? process.env.COMMIT_SHA;
+  // read the resolved values off the provider, not the raw env, so the record
+  // matches what the run used rather than what was requested.
+  return {
+    thinkingLevel: thinkingLevelFromEnv(),
+    contextWindow: modelProvider?.model.contextWindow ?? 0,
+    maxTokens: modelProvider?.model.maxTokens ?? 0,
+    ollamaHost: process.env.OLLAMA_HOST ?? "http://localhost:11434",
+    ...(commit ? { commit } : {}),
+  };
+}
 
 const DEFAULT_OUTPUT_ROOT = fileURLToPath(
   new URL("../../../../output", import.meta.url),
@@ -311,6 +331,7 @@ export class WorkflowService implements WorkflowRunner {
             request: config.request,
             model: modelProvider?.model.id ?? "unknown",
             config: config.toJson(),
+            environment: runEnvironment(modelProvider),
             error: errorMessage,
             stories,
           });
@@ -329,6 +350,7 @@ export class WorkflowService implements WorkflowRunner {
             request: config.request,
             model: "unknown",
             config: config.toJson(),
+            environment: runEnvironment(modelProvider),
             error: errorMessage,
             stories,
           });
