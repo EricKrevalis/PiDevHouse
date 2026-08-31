@@ -18,6 +18,7 @@ export class OllamaProvider implements ModelProvider {
   static async create(): Promise<OllamaProvider> {
     const ollamaHost = process.env.OLLAMA_HOST ?? "http://localhost:11434";
     const modelId = requireEnv("OLLAMA_MODEL");
+    const contextWindow = Number(process.env.OLLAMA_CONTEXT_WINDOW) || 32_768;
 
     const modelRuntime = await ModelRuntime.create({
       modelsPath: null,
@@ -35,7 +36,7 @@ export class OllamaProvider implements ModelProvider {
           reasoning: true,
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 32_768,
+          contextWindow,
           maxTokens: 16_384,
           compat: {
             supportsDeveloperRole: true,

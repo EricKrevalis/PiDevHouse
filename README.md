@@ -26,11 +26,17 @@ before running commands.
 
 ```sh
 cp .env.example .env
-ollama pull qwen3.5:9b
+~/serve-qwen38.sh
 ```
 
+The host script serves `qwen3.8-mtp` (Qwen3.8-27B, MTP) with llama-server,
+tuned for the agent loop: host-RAM KV prefix cache across agent sessions,
+64k context in two 32k slots, q8_0 KV, and MTP speculative decoding. It
+exposes the OpenAI-compatible API on port 8080 and via Tailscale.
+
 Set `OLLAMA_MODEL` in `.env`. `OLLAMA_HOST` defaults to
-`http://localhost:11434` when it is not set.
+`http://localhost:11434` when it is not set. `OLLAMA_CONTEXT_WINDOW` defaults
+to `32768` and must not exceed the per-slot context of the server.
 
 ## Run
 
