@@ -15,10 +15,14 @@ import type { MessagePublisher } from "../messagePublisher.model.ts";
 import { ModelProvider } from "../providers/modelProvider.model.ts";
 import { Workspace } from "../workspace.model.ts";
 
+// a local model on a busy gpu needs longer than 90s to emit its closing write.
+// raised after runs whose only failure was the finalize step timing out.
+const FINALIZE_TIMEOUT_MS = 300_000;
+
 const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"] as const;
 type ThinkingLevel = (typeof VALID_THINKING_LEVELS)[number];
 
-function thinkingLevelFromEnv(): ThinkingLevel {
+export function thinkingLevelFromEnv(): ThinkingLevel {
   const raw = process.env.THINKING_LEVEL;
   if (raw && (VALID_THINKING_LEVELS as readonly string[]).includes(raw)) {
     return raw as ThinkingLevel;
@@ -132,7 +136,11 @@ export abstract class Agent {
       customTools: this.buildCustomTools(),
       resourceLoader: resourceLoader,
       sessionManager: this.sessionManager,
-      settingsManager: SettingsManager.inMemory(),
+      settingsManager: SettingsManager.inMemory({
+        // transport-level retry for the ollama host, reached over tailscale.
+        // a dropped request otherwise ends the invocation with no verdict.
+        retry: { enabled: true, maxRetries: 2, baseDelayMs: 1_000 },
+      }),
     });
 
     let promptCompleted = false;
@@ -202,9 +210,28 @@ export abstract class Agent {
     }
     if (timedOut) {
       await session.abort().catch(() => {});
+      await this.finalizeAfterTimeout(session);
       return;
     }
     await this.afterPrompt(session);
+  }
+
+  // the time budget ends the turn but must not skip the verdict write. a gate
+  // agent that records nothing burns an iteration silently, and after
+  // maxIterations the story blocks with every dependent story untouched.
+  // abort() waits for the session to go idle, so one more prompt is valid here.
+  private async finalizeAfterTimeout(session: AgentSession): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.afterPrompt(session).catch(() => {}),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, FINALIZE_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   protected async afterPrompt(_session: AgentSession): Promise<void> {}
