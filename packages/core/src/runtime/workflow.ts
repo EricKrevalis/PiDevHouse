@@ -7,7 +7,7 @@ import {
   type Config,
 } from "../modules/models/config.model";
 import type { Path } from "typescript";
-import { OllamaProvider } from "../modules/models/ollamaProvider.model";
+import { LlamaProvider } from "../modules/models/llamaProvider.model";
 import { ProductOwnerAgent } from "../modules/agents/po/po.agent";
 import { StoryRepository } from "../modules/repository/story.repository";
 import {
@@ -41,7 +41,7 @@ export async function run(
   const workspace = workspaceOverride
     ? await prepareWorkspace(workspaceOverride)
     : await createRunDirectory(request, config.outputDir);
-  const ollamaProvider = await OllamaProvider.create();
+  const llamaProvider = await LlamaProvider.create();
   const storyRepository = new StoryRepository(
     resolve(workspace, STORIES_FILE) as Path,
   );
@@ -57,7 +57,7 @@ export async function run(
     const productOwner = new ProductOwnerAgent(
       request,
       workspace,
-      ollamaProvider,
+      llamaProvider,
       config,
       storyRepository,
       eventBridge,
@@ -67,14 +67,7 @@ export async function run(
   };
 
   try {
-    const gpuWarning = await ollamaProvider.preflight(runSignal);
-    if (gpuWarning) {
-      messageBus.publish({
-        type: "warning",
-        message: gpuWarning,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    await llamaProvider.preflight(runSignal);
     await runProductOwner();
 
     if (storyRepository.getStories().length === 0) {
@@ -106,7 +99,7 @@ export async function run(
         config,
         story,
         workspace,
-        ollamaProvider,
+        llamaProvider,
         storyRepository,
         eventBridge,
         summaryCollector,

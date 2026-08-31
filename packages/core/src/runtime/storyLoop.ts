@@ -3,7 +3,7 @@ import { ReviewerAgent } from "../modules/agents/reviewer/reviewer.agent";
 import { TesterAgent } from "../modules/agents/tester/tester.agent";
 import { runAgent, type Agent } from "../modules/models/agent.model";
 import type { Config } from "../modules/models/config.model";
-import type { OllamaProvider } from "../modules/models/ollamaProvider.model";
+import type { LlamaProvider } from "../modules/models/llamaProvider.model";
 import type { Story } from "../modules/models/story.model";
 import type { StoryRepository } from "../modules/repository/story.repository";
 import type { AgentEventBridge } from "../modules/services/agentEventBridge";
@@ -21,7 +21,7 @@ export async function runStory(
   config: Config,
   story: Story,
   workspace: Path,
-  modelProvider: OllamaProvider,
+  modelProvider: LlamaProvider,
   storyRepository: StoryRepository,
   eventBridge: AgentEventBridge,
   summaryCollector: SummaryCollector,

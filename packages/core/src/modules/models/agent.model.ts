@@ -6,18 +6,19 @@ import {
   type AgentSession,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { OllamaProvider } from "./ollamaProvider.model";
+import type { LlamaProvider } from "./llamaProvider.model";
 import type { Config } from "./config.model";
 import type { AgentEventBridge } from "../services/agentEventBridge";
 import type { SummaryCollector } from "../services/summaryCollector";
 import type { StoryRepository } from "../repository/story.repository";
 import { createSandboxedBashTool } from "../tools/bash";
 import { scopeToolCalls } from "../tools/scope";
+import { trimToolOutputs } from "../tools/trim";
 import type { Path } from "typescript";
 
 export abstract class Agent {
   readonly name: string;
-  readonly modelProvider: OllamaProvider;
+  readonly modelProvider: LlamaProvider;
   readonly systemPrompt: string;
   readonly userPrompts: string[];
   readonly workspace: string;
@@ -30,7 +31,7 @@ export abstract class Agent {
 
   constructor(params: {
     name: string;
-    modelProvider: OllamaProvider;
+    modelProvider: LlamaProvider;
     systemPrompt: string;
     userPrompts: string[];
     workspace: string;
@@ -102,6 +103,7 @@ export abstract class Agent {
       this.session = session;
 
       scopeToolCalls(session.agent, this.workspace, this.config.maxToolCalls);
+      trimToolOutputs(session.agent);
       this.eventBridge.attach(session, {
         agent: this.name,
         storyId,
@@ -169,7 +171,7 @@ export async function promptSession(
 export async function runAgent(
   agentClass: new (...args: any[]) => Agent,
   workspace: Path,
-  modelProvider: OllamaProvider,
+  modelProvider: LlamaProvider,
   config: Config,
   storyRepository: StoryRepository,
   eventBridge: AgentEventBridge,

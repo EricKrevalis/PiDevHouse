@@ -32,7 +32,7 @@ const agentColors: Record<string, string> = {
   reviewer: theme.tertiary,
   tester: theme.warning,
 };
-export const modelLabel = process.env.OLLAMA_MODEL ?? "ollama";
+export const modelLabel = process.env.LLAMA_MODEL ?? "llama-server";
 
 export type AgentContext = {
   agent: string;

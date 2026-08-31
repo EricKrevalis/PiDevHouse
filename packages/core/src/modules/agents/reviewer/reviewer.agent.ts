@@ -2,7 +2,7 @@ import type { Path } from "typescript";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Agent } from "../../models/agent.model";
 import type { Config } from "../../models/config.model";
-import type { OllamaProvider } from "../../models/ollamaProvider.model";
+import type { LlamaProvider } from "../../models/llamaProvider.model";
 import type { StoryRepository } from "../../repository/story.repository";
 import type { AgentEventBridge } from "../../services/agentEventBridge";
 import type { SummaryCollector } from "../../services/summaryCollector";
@@ -18,7 +18,7 @@ export class ReviewerAgent extends Agent {
   constructor(
     storyId: number,
     workspace: Path,
-    modelProvider: OllamaProvider,
+    modelProvider: LlamaProvider,
     config: Config,
     storyRepository: StoryRepository,
     eventBridge: AgentEventBridge,

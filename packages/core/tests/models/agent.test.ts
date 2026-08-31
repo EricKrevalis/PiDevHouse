@@ -3,14 +3,14 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Agent, promptSession } from "../../src/modules/models/agent.model";
-import { OllamaProvider } from "../../src/modules/models/ollamaProvider.model";
+import { LlamaProvider } from "../../src/modules/models/llamaProvider.model";
 import { StoryRepository } from "../../src/modules/repository/story.repository";
 import { SummaryCollector } from "../../src/modules/services/summaryCollector";
 import { createUpdateStoryStatusTool } from "../../src/modules/tools/storys/updateStoryStatus";
 import type { Config } from "../../src/modules/models/config.model";
 
-const originalOllamaHost = process.env.OLLAMA_HOST;
-const originalOllamaModel = process.env.OLLAMA_MODEL;
+const originalLlamaServer = process.env.LLAMA_SERVER;
+const originalLlamaModel = process.env.LLAMA_MODEL;
 let directory: string;
 
 beforeEach(async () => {
@@ -23,17 +23,17 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (originalOllamaHost === undefined) delete process.env.OLLAMA_HOST;
-  else process.env.OLLAMA_HOST = originalOllamaHost;
-  if (originalOllamaModel === undefined) delete process.env.OLLAMA_MODEL;
-  else process.env.OLLAMA_MODEL = originalOllamaModel;
+  if (originalLlamaServer === undefined) delete process.env.LLAMA_SERVER;
+  else process.env.LLAMA_SERVER = originalLlamaServer;
+  if (originalLlamaModel === undefined) delete process.env.LLAMA_MODEL;
+  else process.env.LLAMA_MODEL = originalLlamaModel;
   await rm(directory, { recursive: true });
 });
 
 test("activates custom tools in a real Pi session", async () => {
-  process.env.OLLAMA_HOST = "http://localhost:11434";
-  process.env.OLLAMA_MODEL = "test-model";
-  const provider = await OllamaProvider.create();
+  process.env.LLAMA_SERVER = "http://localhost:11434";
+  process.env.LLAMA_MODEL = "test-model";
+  const provider = await LlamaProvider.create();
   const repository = new StoryRepository(
     join(directory, "stories.json") as never,
   );
