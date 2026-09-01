@@ -202,8 +202,10 @@ async function main(): Promise<void> {
 
     const reportLines = [
       "\n# Results\n",
-      "| Variant | Run | Outcome | Exit | Duration | Tested | Tokens | Calls |",
-      "|---|---|---|---|---|---|---|---|",
+      "Plan is stories/chain-depth. Depth equal to the count is a linked list,",
+      "where one blocked story strands every story after it.\n",
+      "| Variant | Run | Outcome | Exit | Duration | Tested | Plan | Tokens | Calls |",
+      "|---|---|---|---|---|---|---|---|---|",
     ];
     for (const result of results) {
       const summary = result.summary;
@@ -222,10 +224,13 @@ async function main(): Promise<void> {
         }/${summary.stories.length}`
         : "-";
       const duration = summary ? `${summary.durationSeconds}s` : "-";
+      const plan = summary?.plan
+        ? `${summary.plan.storyCount}/${summary.plan.maxChainDepth}`
+        : "-";
       reportLines.push(
         `| ${result.variantIndex} | ${result.runIndex} | ${
           summary?.outcome ?? "no_summary"
-        } | ${result.exitCode} | ${duration} | ${tested} | ${totals.tokens} | ${totals.calls} |`,
+        } | ${result.exitCode} | ${duration} | ${tested} | ${plan} | ${totals.tokens} | ${totals.calls} |`,
       );
     }
     const cell = (value: number | null, digits = 1): string =>
@@ -251,6 +256,33 @@ async function main(): Promise<void> {
         }ms | ${
           aggregate.callsPerStory.toFixed(2)
         } | ${aggregate.testedStoryRatio.toFixed(2)} |`,
+      );
+    }
+    // same input, different runs. kept apart from the averages above because a
+    // variant is only as good as its worst repeat.
+    reportLines.push(
+      "\n## Stability (across repeat runs of the same variant)\n",
+      "One repeat cannot disagree with itself, so read Agree with Completed.",
+      "Refused is scope refusals, Denied is bash denials, both over tool calls.\n",
+      "| Variant | Runs | Completed | Agree | Outcomes | Tested/run | Test score | Refused | Denied | Skipped |",
+      "|---|---|---|---|---|---|---|---|---|---|",
+    );
+    for (const aggregate of aggregates) {
+      const stability = aggregate.stability;
+      const outcomes = Object.entries(stability.outcomes)
+        .sort(([, a], [, b]) => b - a)
+        .map(([name, count]) => `${name}x${count}`)
+        .join(" ");
+      reportLines.push(
+        `| ${aggregate.variantIndex} | ${aggregate.runCount} | ${
+          stability.completionRate.toFixed(2)
+        } | ${stability.outcomeAgreement ? "yes" : "NO"} | ${
+          outcomes || "-"
+        } | ${stat(stability.testedStoryRatioPerRun, 2)} | ${
+          stat(stability.testScorePerRun)
+        } | ${aggregate.rejectedCallRatio.toFixed(2)} | ${
+          aggregate.sandboxDenialRatio.toFixed(2)
+        } | ${aggregate.skippedStoryRatio.toFixed(2)} |`,
       );
     }
     const classTotals = aggregates.reduce<Record<string, number>>(

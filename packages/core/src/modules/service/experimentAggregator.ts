@@ -45,8 +45,37 @@ export interface VariantAggregate {
   durationPerInvocationMs: Stat;
   // tested / total stories, summed across repeats not averaged per run.
   testedStoryRatio: number;
-  // total tool calls / total stories across repeats with a summary.
+  // assistant turns / total stories across repeats with a summary. named for
+  // `calls`, which counts turns rather than tool calls.
   callsPerStory: number;
+  // scope refusals over refusals plus executed tool calls. the share of an
+  // agent's tool calls the scope guard refused before they ran.
+  rejectedCallRatio: number;
+  // bash denials over executed tool calls. tracked apart from the ratio above
+  // because a denied command is rewritten rather than blocked, so it executes:
+  // it is waste the scope guard never sees, and historically the larger share.
+  sandboxDenialRatio: number;
+  // stories never attempted because a dependency blocked, over all stories.
+  skippedStoryRatio: number;
+  // same input, same configuration, different runs. the mean alone cannot say
+  // whether a variant is reliable, so the spread across repeats is its own
+  // block: chapter 05's regression check reads this, not the averages above.
+  stability: StabilityAggregate;
+}
+
+export interface StabilityAggregate {
+  // runs that reached outcome "completed", over every run of the variant.
+  completionRate: number;
+  // every repeat landed on the same outcome class. false means the variant is
+  // not reproducible regardless of how good its best run looked.
+  outcomeAgreement: boolean;
+  // distinct outcome classes observed, most frequent first.
+  outcomes: Record<string, number>;
+  // per-run tested/total, so partial completion has a spread and not just a
+  // pooled ratio that hides which run did the work.
+  testedStoryRatioPerRun: Stat;
+  // per-run mean final test score, the continuous stability signal.
+  testScorePerRun: Stat;
 }
 
 function isFailure(result: ExperimentRunResult): boolean {
@@ -69,6 +98,60 @@ function runCalls(summary: Summary): number {
     (sum, usage) => sum + usage.calls,
     0,
   );
+}
+
+function runRejectedCalls(summary: Summary): number {
+  return Object.values(summary.agents).reduce(
+    (sum, usage) => sum + (usage.rejectedToolCalls ?? 0),
+    0,
+  );
+}
+
+// tool calls that actually ran. distinct from runCalls, which sums `calls` and
+// therefore counts assistant turns: mixing the two gave the rejection ratio a
+// denominator of turns plus rejections, which is not a rate of anything.
+// falls back to `calls` for summaries written before the field existed.
+function runExecutedCalls(summary: Summary): number {
+  return Object.values(summary.agents).reduce(
+    (sum, usage) => sum + (usage.executedToolCalls ?? usage.calls),
+    0,
+  );
+}
+
+function runSandboxDenials(summary: Summary): number {
+  return Object.values(summary.agents).reduce(
+    (sum, usage) => sum + (usage.sandboxDenials ?? 0),
+    0,
+  );
+}
+
+// tested / total for one run. 0 stories counts as 0, not NaN.
+function runTestedRatio(summary: Summary): number {
+  if (summary.stories.length === 0) return 0;
+  return (
+    summary.stories.filter((story) => story.status === "tested").length /
+    summary.stories.length
+  );
+}
+
+// mean final test score over the stories the run actually reached.
+//
+// a `typeof` guard did not do this: the collector writes testScore for every
+// story whenever the tester is enabled, and the product owner seeds it at 0, so
+// the field is always a number and a never-attempted story contributed a zero.
+// a run that tested one story at 100 and never reached four more reported 20,
+// which reads as a quality collapse rather than a coverage one. filter on what
+// the story actually did instead.
+function runMeanTestScore(summary: Summary): number | undefined {
+  const scores = summary.stories.flatMap((story) =>
+    typeof story.testScore === "number" &&
+    story.skippedByDependency !== true &&
+    story.status !== "todo"
+      ? [story.testScore]
+      : [],
+  );
+  if (scores.length === 0) return undefined;
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length;
 }
 
 // 0 when the run recorded no invocations, avoids NaN.
@@ -145,13 +228,51 @@ export function aggregateExperimentResults(
       let testedStories = 0;
       let totalStories = 0;
       let totalCallsSum = 0;
+      let executedCallsSum = 0;
+      let rejectedCallsSum = 0;
+      let sandboxDenialsSum = 0;
+      let skippedStories = 0;
       for (const summary of withSummary) {
         testedStories += summary.stories.filter(
           (story) => story.status === "tested",
         ).length;
+        skippedStories += summary.stories.filter(
+          (story) => story.skippedByDependency === true,
+        ).length;
         totalStories += summary.stories.length;
         totalCallsSum += runCalls(summary);
+        executedCallsSum += runExecutedCalls(summary);
+        rejectedCallsSum += runRejectedCalls(summary);
+        sandboxDenialsSum += runSandboxDenials(summary);
       }
+
+      // a run that wrote no summary is its own outcome, not an absent one.
+      // counting only withSummary let three runs that all died before writing
+      // anything report "agree: yes" on an empty tally, which is the most
+      // reassuring column in the table saying nothing at all.
+      const outcomes = group.reduce<Record<string, number>>(
+        (counts, result) => {
+          const name = result.summary?.outcome ?? "no_summary";
+          counts[name] = (counts[name] ?? 0) + 1;
+          return counts;
+        },
+        {},
+      );
+      const completedRuns = outcomes.completed ?? 0;
+      const stability: StabilityAggregate = {
+        completionRate: group.length === 0 ? 0 : completedRuns / group.length,
+        // one repeat cannot disagree with itself, so it is trivially in
+        // agreement. read completionRate alongside it.
+        outcomeAgreement: Object.keys(outcomes).length <= 1,
+        outcomes,
+        testedStoryRatioPerRun: stat(withSummary.map(runTestedRatio)),
+        testScorePerRun: stat(
+          withSummary.flatMap((summary) => {
+            const score = runMeanTestScore(summary);
+            return score === undefined ? [] : [score];
+          }),
+        ),
+      };
 
       return {
         variantIndex,
@@ -176,6 +297,15 @@ export function aggregateExperimentResults(
         ),
         testedStoryRatio: totalStories === 0 ? 0 : testedStories / totalStories,
         callsPerStory: totalStories === 0 ? 0 : totalCallsSum / totalStories,
+        rejectedCallRatio:
+          executedCallsSum + rejectedCallsSum === 0
+            ? 0
+            : rejectedCallsSum / (executedCallsSum + rejectedCallsSum),
+        sandboxDenialRatio:
+          executedCallsSum === 0 ? 0 : sandboxDenialsSum / executedCallsSum,
+        skippedStoryRatio:
+          totalStories === 0 ? 0 : skippedStories / totalStories,
+        stability,
       };
     });
 }

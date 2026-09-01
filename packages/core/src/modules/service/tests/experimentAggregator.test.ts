@@ -28,6 +28,9 @@ function usage(
     timedOutInvocations: timing?.timedOutInvocations ?? 0,
     longestInvocationMs: 0,
     longestToolCallMs: timing?.longestToolCallMs ?? 0,
+    rejectedToolCalls: 0,
+    executedToolCalls: calls,
+    sandboxDenials: 0,
   };
 }
 
@@ -324,4 +327,137 @@ it("counts a hung tool call as infrastructure and a budget overrun as model", ()
 
 it("returns an empty array for empty input without throwing", () => {
   assert.deepEqual(aggregateExperimentResults([]), []);
+});
+
+it("reports repeats that disagree as unstable even when one run is clean", () => {
+  const results: ExperimentRunResult[] = [
+    run(
+      1,
+      0,
+      summary({
+        durationSeconds: 10,
+        agents: { a: usage(4, 100, 50) },
+        stories: [story(1, "tested"), story(2, "tested")],
+      }),
+    ),
+    run(
+      1,
+      1,
+      summary({
+        durationSeconds: 20,
+        outcome: "incomplete",
+        agents: { a: usage(4, 100, 50) },
+        stories: [story(1, "tested"), story(2, "blocked")],
+      }),
+    ),
+  ];
+
+  const [aggregate] = aggregateExperimentResults(results);
+
+  assert.equal(aggregate.stability.completionRate, 0.5);
+  assert.equal(aggregate.stability.outcomeAgreement, false);
+  assert.deepEqual(aggregate.stability.outcomes, {
+    completed: 1,
+    incomplete: 1,
+  });
+  // the pooled ratio is 0.75, which hides that one repeat did half the work.
+  assert.equal(aggregate.testedStoryRatio, 0.75);
+  assert.equal(aggregate.stability.testedStoryRatioPerRun.min, 0.5);
+  assert.equal(aggregate.stability.testedStoryRatioPerRun.max, 1);
+});
+
+it("counts refused tool calls and never-attempted stories", () => {
+  const rejecting = usage(6, 100, 50);
+  rejecting.rejectedToolCalls = 2;
+  const results: ExperimentRunResult[] = [
+    run(
+      1,
+      1,
+      summary({
+        durationSeconds: 10,
+        outcome: "incomplete",
+        agents: { a: rejecting },
+        stories: [
+          story(1, "blocked"),
+          { ...story(2, "todo"), skippedByDependency: true },
+        ],
+      }),
+    ),
+  ];
+
+  const [aggregate] = aggregateExperimentResults(results);
+
+  assert.equal(aggregate.rejectedCallRatio, 2 / 8);
+  assert.equal(aggregate.skippedStoryRatio, 0.5);
+});
+
+it("rates refused calls against tool calls, not assistant turns", () => {
+  // usage.calls counts assistant messages. using it as the denominator made the
+  // ratio turns-plus-rejections, which is not a rate of anything.
+  const busy = usage(3, 100, 50);
+  busy.executedToolCalls = 17;
+  busy.rejectedToolCalls = 3;
+  busy.sandboxDenials = 4;
+  const [aggregate] = aggregateExperimentResults([
+    run(1, 0, summary({
+      durationSeconds: 10,
+      agents: { a: busy },
+      stories: [story(1, "tested")],
+    })),
+  ]);
+
+  assert.equal(aggregate.rejectedCallRatio, 3 / 20);
+  // denials execute as tool calls, so they are a share of what ran
+  assert.equal(aggregate.sandboxDenialRatio, 4 / 17);
+});
+
+it("does not let a never-attempted story drag the mean test score to zero", () => {
+  // the collector writes testScore for every story and the PO seeds it at 0, so
+  // a typeof guard never fired and a skipped story counted as a zero.
+  const [aggregate] = aggregateExperimentResults([
+    run(1, 1, summary({
+      durationSeconds: 10,
+      outcome: "incomplete",
+      agents: { a: usage(1, 10, 10) },
+      stories: [
+        { ...story(1, "tested"), testScore: 100 },
+        { ...story(2, "todo"), testScore: 0, skippedByDependency: true },
+        { ...story(3, "todo"), testScore: 0 },
+      ],
+    })),
+  ]);
+
+  // one story was tested, at 100. the other two were never reached.
+  assert.equal(aggregate.stability.testScorePerRun.mean, 100);
+});
+
+it("counts a run that wrote no summary as its own outcome", () => {
+  // three runs that all died before writing anything used to report agreement
+  // on an empty tally, which is the most reassuring column saying nothing.
+  const [aggregate] = aggregateExperimentResults([
+    run(1, 1, null),
+    run(1, 0, summary({
+      durationSeconds: 10,
+      agents: { a: usage(1, 10, 10) },
+      stories: [story(1, "tested")],
+    })),
+  ]);
+
+  assert.equal(aggregate.stability.outcomeAgreement, false);
+  assert.deepEqual(aggregate.stability.outcomes, {
+    no_summary: 1,
+    completed: 1,
+  });
+});
+
+it("reports no agreement when every repeat failed to produce a summary", () => {
+  const [aggregate] = aggregateExperimentResults([
+    run(1, 1, null),
+    run(1, 1, null),
+  ]);
+
+  assert.deepEqual(aggregate.stability.outcomes, { no_summary: 2 });
+  assert.equal(aggregate.stability.completionRate, 0);
+  // they agree, but on having produced nothing: completionRate is the reader
+  assert.equal(aggregate.stability.outcomeAgreement, true);
 });
