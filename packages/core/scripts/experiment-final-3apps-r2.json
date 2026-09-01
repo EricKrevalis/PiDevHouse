@@ -1,0 +1,17 @@
+{
+  "repeat": 2,
+  "variants": [
+    {
+      "request": "Make a basic calculator web app with a display, the four arithmetic operators, a clear button, and keyboard input.",
+      "flags": { "max-iterations": 4, "min-score": 75, "timeout-minutes": 12, "max-run-minutes": 100 }
+    },
+    {
+      "request": "Make a basic todo list web app where a task can be added, marked done, and deleted, with a count of the remaining tasks shown.",
+      "flags": { "max-iterations": 4, "min-score": 75, "timeout-minutes": 12, "max-run-minutes": 100 }
+    },
+    {
+      "request": "Make a basic shopping cart web app where items can be added, quantities changed, and items removed, with the order total updating as the cart changes.",
+      "flags": { "max-iterations": 4, "min-score": 75, "timeout-minutes": 12, "max-run-minutes": 100 }
+    }
+  ]
+}
