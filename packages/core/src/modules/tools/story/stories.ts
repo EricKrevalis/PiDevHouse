@@ -16,6 +16,30 @@ export const storySchema = z.object({
   testResult: z.object({ score: z.number().min(-1).max(100), note: z.string() }),
 });
 
+// a dependency cycle passes every per-story check: each id exists and none
+// points at itself. the run then plans fine, finds nothing ready on the first
+// scheduling pass, and ends as a dependency failure having built nothing. this
+// validator's message is the only automatic feedback the product owner ever
+// gets, so the cheapest place to catch it is here, while it can still retry.
+function hasCycle(stories: { id: number; blockedBy: number[] }[]): boolean {
+  const blockers = new Map(
+    stories.map((story) => [story.id, story.blockedBy]),
+  );
+  const state = new Map<number, "visiting" | "done">();
+  const visit = (id: number): boolean => {
+    const seen = state.get(id);
+    if (seen === "done") return false;
+    if (seen === "visiting") return true;
+    state.set(id, "visiting");
+    for (const next of blockers.get(id) ?? []) {
+      if (visit(next)) return true;
+    }
+    state.set(id, "done");
+    return false;
+  };
+  return stories.some((story) => visit(story.id));
+}
+
 export const storiesArraySchema = z
   .array(storySchema)
   .min(1)
@@ -30,9 +54,26 @@ export const storiesArraySchema = z
       );
     },
     { message: "duplicate ids or invalid dependencies" },
-  );
+  )
+  .refine((stories) => !hasCycle(stories), {
+    message:
+      "dependency cycle: some stories block each other, so none can ever start",
+  })
+  .refine((stories) => stories.some((story) => story.blockedBy.length === 0), {
+    message: "no story is unblocked, so the run has nothing to start with",
+  });
 
 export const storiesFileSchema = z.object({ stories: storiesArraySchema });
+
+// what the product owner is asked to supply. reviewResult and testResult are
+// deliberately absent: writeStories overwrites both with zeros, so requiring
+// them made the model emit fields that were discarded and gave the schema an
+// extra way to reject a plan that was otherwise fine.
+export const storiesInputSchema = z.object({
+  stories: z
+    .array(storySchema.omit({ reviewResult: true, testResult: true }))
+    .min(1),
+});
 
 export function validateStories(
   contents: string,

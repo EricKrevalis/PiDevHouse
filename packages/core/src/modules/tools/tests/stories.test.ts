@@ -83,3 +83,62 @@ it("StoryStore.setStatus sets the status idempotently", async () => {
   const written = (await storyStore.read())?.stories[0];
   assert.equal(written?.status, "tested");
 });
+
+it("rejects a dependency cycle before the run can stall on it", () => {
+  // every per-story check passes: both ids exist, neither points at itself. the
+  // run then plans fine, finds nothing ready, and dies having built nothing.
+  const cyclic = JSON.stringify({
+    stories: [story(1, [2]), story(2, [1])],
+  });
+
+  const result = validateStories(cyclic);
+  assert.equal(typeof result, "string");
+  assert.match(result as string, /cycle/);
+});
+
+it("rejects a plan where nothing can start", () => {
+  const result = validateStories(
+    JSON.stringify({ stories: [story(1, [2]), story(2, [3]), story(3, [1])] }),
+  );
+  assert.equal(typeof result, "string");
+});
+
+it("accepts a plan of independent stories", () => {
+  const result = validateStories(
+    JSON.stringify({ stories: [story(1), story(2), story(3, [1])] }),
+  );
+  assert.notEqual(typeof result, "string");
+});
+
+it("takes a plan that omits the score fields and seeds them itself", async () => {
+  // write_stories overwrites both with zeros anyway, so requiring them only
+  // spent output tokens in the least instrumented stage of the run.
+  const dir = await mkdtemp(join(tmpdir(), "pidev-stories-"));
+  const path = join(dir, "stories.json");
+  const store = new StoryStore(path);
+  const tool = createWriteStoriesTool(store);
+
+  const result = await tool.execute(
+    "call-1",
+    {
+      stories: [
+        {
+          id: 1,
+          title: "Story 1",
+          description: "desc",
+          acceptanceCriteria: ["criterion"],
+          blockedBy: [],
+          status: "todo",
+        },
+      ],
+    },
+    undefined,
+    undefined,
+    {} as Parameters<typeof tool.execute>[4],
+  );
+
+  assert.match(JSON.stringify(result), /Wrote 1 stories/);
+  const state = await readStories(path);
+  assert.deepEqual(state?.stories[0].reviewResult, { score: 0, note: "" });
+  assert.deepEqual(state?.stories[0].testResult, { score: 0, note: "" });
+});
