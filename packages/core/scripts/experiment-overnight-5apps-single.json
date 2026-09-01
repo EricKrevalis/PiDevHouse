@@ -1,0 +1,50 @@
+{
+  "repeat": 1,
+  "variants": [
+    {
+      "request": "Make a basic calculator web app with a display, the four arithmetic operators, a clear button, and keyboard input.",
+      "flags": {
+        "max-iterations": 4,
+        "min-score": 75,
+        "timeout-minutes": 12,
+        "max-run-minutes": 75
+      }
+    },
+    {
+      "request": "Make a basic todo list web app where a task can be added, marked done, and deleted, with a count of the remaining tasks shown.",
+      "flags": {
+        "max-iterations": 4,
+        "min-score": 75,
+        "timeout-minutes": 12,
+        "max-run-minutes": 75
+      }
+    },
+    {
+      "request": "Make a basic unit converter web app for length and weight, with a dropdown for each unit and the result updating as you type.",
+      "flags": {
+        "max-iterations": 4,
+        "min-score": 75,
+        "timeout-minutes": 12,
+        "max-run-minutes": 75
+      }
+    },
+    {
+      "request": "Make a basic markdown note editor web app with an editor pane, a live rendered preview beside it, and notes persisted in localStorage.",
+      "flags": {
+        "max-iterations": 4,
+        "min-score": 75,
+        "timeout-minutes": 12,
+        "max-run-minutes": 75
+      }
+    },
+    {
+      "request": "Make a basic countdown timer web app where a duration is set in minutes and seconds, with start, pause and reset buttons and a visible alert when it reaches zero.",
+      "flags": {
+        "max-iterations": 4,
+        "min-score": 75,
+        "timeout-minutes": 12,
+        "max-run-minutes": 75
+      }
+    }
+  ]
+}
