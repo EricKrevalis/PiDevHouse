@@ -77,8 +77,15 @@ export abstract class Agent {
   readonly timeoutMinutes: number;
   readonly sessionManager: SessionManager;
 
+  // counted per invocation, read back in run()'s finally alongside the scope
+  // guard's budget. lives on the instance because the sandbox reports denials
+  // through a callback rather than through a tool result.
+  private sandboxDenials = 0;
+
   protected buildCustomTools(): ReturnType<typeof createCustomTools> {
-    return createCustomTools(this.tools, this.workspace, this.storyStore);
+    return createCustomTools(this.tools, this.workspace, this.storyStore, () => {
+      this.sandboxDenials += 1;
+    });
   }
 
   // optional prompt sections the base class appends after the agent's own prompt,
@@ -86,8 +93,16 @@ export abstract class Agent {
   // plus denylist, the run's time budget). subclasses override to add
   // agent-specific blocks, e.g. a per-agent tool allowlist, via
   // `[...super.contextSections(), ...]`.
-  protected contextSections(): string[] {
+  protected contextSections(iteration?: number): string[] {
     const sections: string[] = [];
+    // iteration was accepted and thrown away, so the prompt on a fourth rework
+    // pass was byte-identical to the first. every agent's "address the open
+    // findings" instruction was conditional text the model had to infer applied.
+    if (iteration !== undefined && iteration > 1) {
+      sections.push(
+        `## Rework pass\nThis is pass ${iteration} on this story; earlier passes did not clear it. The recorded findings are what remains open. Address those, and leave anything already accepted alone.`,
+      );
+    }
     if (this.tools.some((tool) => toolName(tool) === "bash")) {
       sections.push(describeSandbox(this.workspace));
     }
@@ -100,7 +115,7 @@ export abstract class Agent {
   }
 
   protected userPromptFor(iteration?: number): string {
-    return [this.userPrompt, ...this.contextSections()].join("\n\n");
+    return [this.userPrompt, ...this.contextSections(iteration)].join("\n\n");
   }
 
   async run(
@@ -144,18 +159,25 @@ export abstract class Agent {
     });
 
     let promptCompleted = false;
+    this.sandboxDenials = 0;
+    const budget = scopeToolCalls(
+      session.agent,
+      [this.workspace.workspaceDir, this.workspace.testDir],
+      this.maxToolCalls,
+      this.writeAccess,
+    );
     try {
       this.eventBridge.attach(this, session, storyId, iteration);
       this.summaryCollector.attach(this, session, storyId, iteration);
-      scopeToolCalls(
-        session.agent,
-        [this.workspace.workspaceDir, this.workspace.testDir],
-        this.maxToolCalls,
-        this.writeAccess,
-      );
       await this.prompt(session, iteration, signal);
       promptCompleted = true;
     } finally {
+      // read after the turn ends so the counts cover the whole invocation,
+      // including anything afterPrompt did.
+      this.summaryCollector.noteToolCallBudget(this.name, {
+        ...budget,
+        sandboxDenials: this.sandboxDenials,
+      });
       if (!promptCompleted) {
         await session.abort().catch(() => {});
       }
@@ -210,27 +232,60 @@ export abstract class Agent {
     }
     if (timedOut) {
       await session.abort().catch(() => {});
-      await this.finalizeAfterTimeout(session);
-      return;
     }
-    await this.afterPrompt(session);
+    await this.finalize(session, signal);
   }
 
-  // the time budget ends the turn but must not skip the verdict write. a gate
-  // agent that records nothing burns an iteration silently, and after
-  // maxIterations the story blocks with every dependent story untouched.
-  // abort() waits for the session to go idle, so one more prompt is valid here.
-  private async finalizeAfterTimeout(session: AgentSession): Promise<void> {
+  // the closing verdict write, on every path out of the turn.
+  //
+  // afterPrompt issues a second full model turn for the gate agents, and
+  // session.prompt() takes neither a timeout nor a signal, so on its own it is
+  // unbounded. the timeout path always knew that and raced it; the success path
+  // did not, and by the time it ran, the invocation timer had been cleared and
+  // the abort listener removed, leaving a nudge that nothing could stop. a
+  // stalled host there hung the whole run past maxRunMinutes, since the run
+  // deadline aborts a signal nobody was listening to any more.
+  //
+  // so both paths come through here: bounded by FINALIZE_TIMEOUT_MS, and
+  // cancellable. whoever wins, the session is aborted before the caller
+  // disposes it, or the request keeps running against ollama and holds a slot
+  // the next agent in the loop needs.
+  private async finalize(
+    session: AgentSession,
+    signal?: AbortSignal,
+  ): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let abortHandler: (() => void) | undefined;
+    let settledCleanly = false;
     try {
       await Promise.race([
-        this.afterPrompt(session).catch(() => {}),
+        this.afterPrompt(session)
+          .then(() => {
+            settledCleanly = true;
+          })
+          .catch(() => {
+            // a failed nudge is still a finished one: nothing is in flight.
+            settledCleanly = true;
+          }),
         new Promise<void>((resolve) => {
           timer = setTimeout(resolve, FINALIZE_TIMEOUT_MS);
+        }),
+        new Promise<void>((resolve) => {
+          if (signal === undefined) return;
+          if (signal.aborted) {
+            resolve();
+            return;
+          }
+          abortHandler = (): void => resolve();
+          signal.addEventListener("abort", abortHandler, { once: true });
         }),
       ]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      if (signal !== undefined && abortHandler !== undefined) {
+        signal.removeEventListener("abort", abortHandler);
+      }
+      if (!settledCleanly) await session.abort().catch(() => {});
     }
   }
 

@@ -44,11 +44,14 @@ export function createCustomTools(
   refs: readonly ToolRef[],
   workspace: Workspace,
   storyStore: StoryStore,
+  onSandboxDenial?: () => void,
 ): ToolDefinition[] {
   return refs.flatMap((ref) => {
     switch (toolName(ref)) {
       case TOOLS.bash:
-        return [defineTool(createSandboxedBashTool(workspace))];
+        return [
+          defineTool(createSandboxedBashTool(workspace, onSandboxDenial)),
+        ];
       case TOOLS.write:
         return [defineTool(createWriteToolDefinition(workspace.workspaceDir))];
       case TOOLS.edit:

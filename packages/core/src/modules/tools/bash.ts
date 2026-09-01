@@ -213,7 +213,13 @@ export function withDefaultTimeout(
   };
 }
 
-export function createSandboxedBashTool(workspace: Workspace) {
+export function createSandboxedBashTool(
+  workspace: Workspace,
+  // called once per denied command. a denial is served by rewriting the command
+  // to a failing echo, so it succeeds as a tool call and never reaches the
+  // scope guard's rejection count. this hook is the only place to observe it.
+  onDenial?: () => void,
+) {
   const allowedRoots = sandboxAllowedRoots(workspace);
   return createBashToolDefinition(workspace.workspaceDir, {
     // spawnHook has already run by the time operations.exec is called, so the
@@ -226,6 +232,7 @@ export function createSandboxedBashTool(workspace: Workspace) {
         workspace.workspaceDir,
       );
       if (denied !== null) {
+        onDenial?.();
         return { ...context, command: `echo ${quote(denied)}; exit 1` };
       }
       return {
