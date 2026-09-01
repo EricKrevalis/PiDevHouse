@@ -11,8 +11,13 @@
 # cheap cell runs first, so a complete operating point is banked inside the
 # first hour even if the batch has to be cut short.
 #
-# the tui renderer needs a pty, so launch it under script(1):
-#   setsid nohup script -qec "bash packages/core/scripts/run-final.sh" /dev/null >/dev/null 2>&1 &
+# launch detached, from a shell where bun already resolves:
+#   setsid nohup bash packages/core/scripts/run-final.sh > output/run-final.stderr 2>&1 < /dev/null & disown
+#
+# no script(1) pty wrapper: the batch function discards the tui's stdout anyway.
+# never send stderr to /dev/null. the bun-on-PATH check exits before the log
+# file is created, so a direnv that has not loaded looks like the script doing
+# nothing at all.
 set -u
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
