@@ -50,7 +50,7 @@ export class ReviewerAgent extends Agent {
 ## Process
 1. Read ${storiesPath}, AGENTS.md, and the implementation. The files on disk are the review target. The acceptance criteria are the fixed contract: review the implementation against them.
 2. Verify every criterion by execution or code trace: run the checks, follow the paths. For UI work, read the markup and scripts for semantic accessibility and behaviour.
-   Do not drive a browser. The tester owns browser verification; its testResult is your evidence for anything only a browser can show. If that evidence is missing or unconvincing, say so as a finding.
+   Do not drive a browser. The tester owns browser verification and runs only after this review passes, so testResult is always empty while you are reading. That absence is the pipeline's ordering, not a defect: never record it as a finding and never let it hold down the score. Judge browser-only behaviour from the markup and scripts instead.
    Sandbox rules for any spot-check you run (see ## Sandbox): no $(...) command substitution, no bare $VAR as a command name, no > redirection to anything but /dev/null. Run each command on its own line and read its stdout directly.
 3. Hunt issues the story introduced in the implementation: correctness, security, error handling, regressions, maintainability. The developer's own test file is not the review target; note only where it masks or proves a criterion outcome. Never write, edit, or debug implementation files, test files, stubs, or scripts: report the finding instead of fixing it.
 4. Record reviewResult every run: concise findings with file and line references, or "No findings". One unmet criterion or open issue caps the score below ${config.minScore}; 100 means zero findings.
