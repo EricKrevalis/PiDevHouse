@@ -72,7 +72,8 @@ flags:
 | `--min-score=N` | `75` | Minimum review/test score to pass |
 | `--no-reviewer` | off | Skip the reviewer agent |
 | `--no-tester` | off | Skip the tester agent |
-| `--timeout-minutes=N` | `0` | Per-agent timeout in minutes (`0` = none) |
+| `--timeout-minutes=N` | `20` | Per-agent-invocation timeout in minutes (`0` = none) |
+| `--max-run-minutes=N` | `120` | Ceiling on the whole run (`0` = none). Bounds what `max-iterations` x agents x `timeout-minutes` can reach per story, so one stuck run cannot eat an unattended batch |
 
 Each run creates artifacts under `output/<request>/<timestamp>/`:
 
@@ -144,8 +145,13 @@ bun run test
 
 ```text
 packages/core  Agent workflow and service API
+docs/          Architecture map, model tuning notes, todo
 output/        Generated run artifacts (ignored by Git)
 ```
+
+`docs/architecture.md` is the pipeline map: the six stages, every knob that
+steers them, which artifact records what, and the known gaps. Read it before
+proposing a change to the workflow or debugging a run from its logs.
 
 ## License
 
