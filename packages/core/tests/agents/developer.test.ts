@@ -6,8 +6,10 @@ const developerPrompt = await Bun.file(
 ).text();
 
 test("developer implements and tests without browser validation", () => {
-  expect(developerPrompt).toContain("Put tests under `test/`");
-  expect(developerPrompt).toContain("Do not perform browser validation");
+  expect(developerPrompt).toContain("unit tests under `test/`");
+  expect(developerPrompt).toContain("pure unit tests");
+  expect(developerPrompt).toContain("Keep tests independent of DOM");
+  expect(developerPrompt).toContain("Leave browser validation to the tester");
   const agent = new DeveloperAgent(
     1,
     "/workspace" as never,
@@ -19,6 +21,6 @@ test("developer implements and tests without browser validation", () => {
   );
 
   expect(agent.userPrompts).toHaveLength(1);
-  expect(agent.userPrompts[0]).toContain("Implement and unit-test");
-  expect(agent.systemPrompt).toContain("unit tests only");
+  expect(agent.userPrompts[0]).toContain("Implement story 1");
+  expect(agent.systemPrompt).toContain("pure unit tests");
 });

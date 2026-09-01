@@ -66,7 +66,7 @@ export async function runStory(
         `No ${variant} result was recorded. Please update the story before ending.`,
       );
       await agentSession.prompt(
-        `You finished without recording your result for story ${story.id}. Call update_validation_result with variant "${variant}" now, and update_story_status if it passes, then reply.`,
+        `Record the missing result for story ${story.id}. Call update_validation_result with variant "${variant}". If it passes, call update_story_status. Then reply.`,
         signal,
       );
       result = storyRepository.getStory(story.id);
@@ -87,7 +87,7 @@ export async function runStory(
           "Story was not finalized as implemented.",
         );
         await developer.prompt(
-          `Finish story ${story.id} now. If the implementation and checks are complete, call update_story_status with "implemented"; otherwise leave it "in_progress", then reply.`,
+          `Finish story ${story.id} now. If the implementation and checks pass, call update_story_status with "implemented". Otherwise keep it "in_progress". Then reply.`,
           signal,
         );
       }

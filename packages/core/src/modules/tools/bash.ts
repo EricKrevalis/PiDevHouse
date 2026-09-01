@@ -52,6 +52,7 @@ function bubblewrapArgs(
   shell: string,
   command: string,
   safePath: string,
+  readOnly: boolean,
 ): string[] {
   const args = [
     "--die-with-parent",
@@ -85,9 +86,20 @@ function bubblewrapArgs(
     "/tmp/home",
   ];
   for (const path of RUNTIME_PATHS) args.push("--ro-bind-try", path, path);
-  args.push("--bind", workspace, workspace);
+  args.push(readOnly ? "--ro-bind" : "--bind", workspace, workspace);
   for (const root of roots) {
-    args.push("--dir", root.target, "--bind", root.source, root.target);
+    args.push(
+      "--dir",
+      root.target,
+      readOnly ? "--ro-bind" : "--bind",
+      root.source,
+      root.target,
+    );
+  }
+  if (readOnly) {
+    // agentsMd must stay writable
+    const agentsMd = resolve(workspace, "src", "AGENTS.md");
+    args.push("--bind-try", agentsMd, agentsMd);
   }
   // harness state (stories.json, run log) stays read-only even though the root is writable
   args.push(
@@ -115,6 +127,7 @@ function sandboxedBashOperations(
   roots: readonly { source: string; target: string }[],
   shell: string,
   safePath: string,
+  readOnly: boolean,
 ): BashOperations {
   return {
     exec(command, cwd, { onData, signal, timeout }) {
@@ -137,7 +150,7 @@ function sandboxedBashOperations(
       return new Promise((resolveExec, reject) => {
         const child = spawn(
           bwrap,
-          bubblewrapArgs(workspace, roots, shell, command, safePath),
+          bubblewrapArgs(workspace, roots, shell, command, safePath, readOnly),
           {
             detached: true,
             env: {
@@ -182,7 +195,8 @@ function sandboxedBashOperations(
         child.once("close", (exitCode) => {
           cleanup();
           if (stopped === "aborted") reject(new Error("aborted"));
-          else if (stopped === "timeout") reject(new Error(`timeout:${timeout}`));
+          else if (stopped === "timeout")
+            reject(new Error(`timeout:${timeout}`));
           else resolveExec({ exitCode });
         });
       });
@@ -192,6 +206,7 @@ function sandboxedBashOperations(
 
 export function createSandboxedBashTool(
   workspacePath: string,
+  readOnly = false,
 ): ReturnType<typeof createBashToolDefinition> {
   if (process.platform !== "linux") {
     throw new Error("Sandboxed bash requires Linux and bubblewrap (bwrap)");
@@ -225,6 +240,7 @@ export function createSandboxedBashTool(
       roots,
       shell,
       safePath,
+      readOnly,
     ),
   });
   // a custom tool named "bash" overrides pi's builtin in the tool registry

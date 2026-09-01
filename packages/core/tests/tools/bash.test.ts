@@ -94,6 +94,33 @@ sandboxTest("workspace root is writable, log stays read-only", async () => {
   expect(await readFile(join(log, "stories.json"), "utf8")).toBe("[]");
 });
 
+sandboxTest("read-only workspace freezes src but keeps AGENTS.md writable", async () => {
+  const { root } = await createWorkspace();
+  await writeFile(join(root, "src", "AGENTS.md"), "# notes\n");
+  const tool = createSandboxedBashTool(root, true);
+
+  await tool.execute(
+    "append-lesson",
+    { command: "printf -- '- lesson\\n' >> src/AGENTS.md" },
+    undefined,
+    undefined,
+    {} as never,
+  );
+  expect(await readFile(join(root, "src", "AGENTS.md"), "utf8")).toContain(
+    "- lesson",
+  );
+
+  await expect(
+    tool.execute(
+      "write-src",
+      { command: "touch src/new.txt" },
+      undefined,
+      undefined,
+      {} as never,
+    ),
+  ).rejects.toThrow("Command exited with code");
+});
+
 sandboxTest("bubblewrap honors timeout and AbortSignal", async () => {
   const { root } = await createWorkspace();
   const tool = createSandboxedBashTool(root);

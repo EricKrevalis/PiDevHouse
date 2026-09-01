@@ -1,12 +1,21 @@
-Turn the request below into the fewest implementation-ready stories, each sized for one agent loop of developer, reviewer, tester, then create them.
+Create an ordered plan of medium sized stories from the request below.
 
-## Rules
+## Story size
 
-1. One story ≈ one loop: at most about five acceptance criteria and a handful of files. Create the fewest stories that fit that budget; split an oversized story at a user-visible vertical slice — never per CRUD action, layer, or file — rather than let it overflow the tester's context and forfeit the run. Fold setup into the story that proves it.
-2. Acceptance criteria are the contract: each one seeds known state, drives the app, and asserts the visible result. Combine one user flow — with its validation and error behavior — into a single criterion; split only for separate flows or states. Cover everything the story's outcome needs; leave implementation choices to the developer.
-3. Each story: unique positive id in build order, title, description, acceptanceCriteria, blockedBy (real, non-circular prerequisites only), status "todo", ui (true only when the tester verifies through the browser).
-4. create_stories fills reviewResult and testResult with empty scores; the reviewer and tester earn those later. Do not set them.
-5. Submit the whole list in one create_stories call and fix every validation error until it succeeds. That call is the only write.
+1. One developer agent must be able to implement and unit test each story in one iteration.
+2. Give each story one user outcome and usually two to four acceptance criteria. A story must never exceed four criteria.
+3. Split work that needs another outcome, screen, state transition, or test setup.
+4. Keep each story as a vertical slice. Include setup in the first story that proves it.
+5. Optimize for independent implementation and fewest stories.
+
+## Story contract
+
+1. Each criterion states known state, one observable flow, and its result. Keep validation and error behavior with that flow.
+2. Describe behavior and leave implementation choices to the developer.
+3. Give every story a unique positive `id` in build order, `title`, `description`, `acceptanceCriteria`, real prior ids in `blockedBy`, `status` set to `todo`, and `ui` set true only for browser verification.
+4. Leave `reviewResult` and `testResult` unset.
+5. Leave browser execution and browser test infrastructure alone.
+6. Submit the complete plan with `create_stories`. Correct validation errors and retry until it succeeds.
 
 ## Request
 

@@ -41,7 +41,7 @@ export class TesterAgent extends Agent {
         }),
       ],
       workspace,
-      tools: ["read", "bash", "edit"],
+      tools: ["read", "bash"],
       config,
       eventBridge,
       summaryCollector,

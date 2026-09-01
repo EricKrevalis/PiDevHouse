@@ -37,7 +37,7 @@ export class LlamaProvider {
           reasoning: true,
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: 65_536,
+          contextWindow: 32_768,
           maxTokens: 32_768,
           compat: {
             supportsStore: false,
@@ -57,7 +57,6 @@ export class LlamaProvider {
     return new LlamaProvider(modelRuntime, model, serverUrl);
   }
 
-  // Fails unless llama-server is up with the expected total slot context.
   async preflight(signal?: AbortSignal): Promise<void> {
     try {
       const response = await fetch(`${this.serverUrl}/slots`, { signal });
@@ -65,10 +64,10 @@ export class LlamaProvider {
         throw new Error(`/slots returned HTTP ${response.status}`);
       }
       const slots = (await response.json()) as { n_ctx?: number }[];
-      const contextLength = slots.reduce((n, s) => n + (s.n_ctx ?? 0), 0);
-      if (contextLength !== this.model.contextWindow) {
+      const smallSlot = slots.find((s) => s.n_ctx !== this.model.contextWindow);
+      if (smallSlot) {
         throw new Error(
-          `context ${contextLength || "unknown"}; expected ${this.model.contextWindow}`,
+          `slot context ${smallSlot.n_ctx ?? "unknown"}; expected ${this.model.contextWindow}`,
         );
       }
     } catch (error) {

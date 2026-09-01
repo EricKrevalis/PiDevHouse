@@ -23,8 +23,7 @@ export class DeveloperAgent extends Agent {
     super({
       name: "developer",
       modelProvider,
-      systemPrompt:
-        `${TEAM_PREFIX} You are the developer. Implement production changes and unit tests only.`,
+      systemPrompt: `${TEAM_PREFIX} You are the developer. Change production code and pure unit tests only. Do not do Browser or DOM tests.`,
       userPrompts: [
         loadPrompt(new URL("./developerPrompt.md", import.meta.url), {
           storyId: String(storyId),
@@ -44,5 +43,9 @@ export class DeveloperAgent extends Agent {
       createUpdateStoryStatusTool(this.storyRepository),
       createGetStoryTool(this.storyRepository),
     ];
+  }
+
+  protected override bashReadOnly(): boolean {
+    return false;
   }
 }

@@ -23,7 +23,7 @@ export class ProductOwnerAgent extends Agent {
       name: "productOwner",
       modelProvider,
       systemPrompt:
-        `${TEAM_PREFIX} You are the product owner. **Always conclude your turn with the create_stories tool**`,
+        `${TEAM_PREFIX} You are the product owner. Your only write and final action is a successful create_stories call.`,
       userPrompts: [
         loadPrompt(new URL("./poPrompt.md", import.meta.url), { userRequest }),
       ],

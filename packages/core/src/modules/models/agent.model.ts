@@ -13,7 +13,6 @@ import type { SummaryCollector } from "../services/summaryCollector";
 import type { StoryRepository } from "../repository/story.repository";
 import { createSandboxedBashTool } from "../tools/bash";
 import { scopeToolCalls } from "../tools/scope";
-import { trimToolOutputs } from "../tools/trim";
 import type { Path } from "typescript";
 
 export abstract class Agent {
@@ -85,7 +84,10 @@ export abstract class Agent {
       const customTools = this.buildCustomTools();
       if (this.tools.includes("bash")) {
         customTools.push(
-          createSandboxedBashTool(this.workspace) as ToolDefinition,
+          createSandboxedBashTool(
+            this.workspace,
+            this.bashReadOnly(),
+          ) as ToolDefinition,
         );
       }
 
@@ -102,12 +104,12 @@ export abstract class Agent {
         sessionManager: SessionManager.inMemory(),
         settingsManager: SettingsManager.inMemory({
           retry: { enabled: true, maxRetries: 2, baseDelayMs: 1_000 },
+          compaction: { reserveTokens: 4_096, keepRecentTokens: 12_000 },
         }),
       });
       this.session = session;
 
       scopeToolCalls(session.agent, this.workspace, this.config.maxToolCalls);
-      trimToolOutputs(session.agent);
       this.customizeSession(session);
       this.eventBridge.attach(session, {
         agent: this.name,
@@ -128,6 +130,10 @@ export abstract class Agent {
   protected async cleanup(): Promise<void> {}
 
   protected customizeSession(_session: AgentSession): void {}
+
+  protected bashReadOnly(): boolean {
+    return true;
+  }
 
   async close(): Promise<void> {
     const session = this.session;
