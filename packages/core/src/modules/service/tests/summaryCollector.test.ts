@@ -154,3 +154,141 @@ it("a second agent_start before agent_end discards the first invocation's timing
   assert.equal(agents.developer.totalDurationMs, 250);
   assert.equal(agents.developer.invocations, 1);
 });
+
+// writes a summary carrying real stories, for the story-level assertions below.
+async function collectSummary(
+  collector: SummaryCollector,
+  stories: Parameters<SummaryCollector["writeSummary"]>[1]["stories"] = [],
+): Promise<Summary> {
+  const runDir = await mkdtemp(join(tmpdir(), "pidev-summary-"));
+  await collector.writeSummary(runDir, {
+    startedAt: "2026-01-01T00:00:00.000Z",
+    endedAt: "2026-01-01T00:01:00.000Z",
+    durationSeconds: 60,
+    request: "req",
+    outcome: "completed",
+    failureMode: "none",
+    exitCode: 0,
+    model: "test",
+    config: {},
+    environment: {
+      thinkingLevel: "low",
+      contextWindow: 65_536,
+      maxTokens: 16_384,
+      ollamaHost: "http://localhost:11434",
+    },
+    stories,
+  });
+  return JSON.parse(
+    await readFile(join(runDir, "summary.json"), "utf8"),
+  ) as Summary;
+}
+
+const storyFixture = (
+  id: number,
+  blockedBy: number[] = [],
+  criteria = 1,
+): Parameters<SummaryCollector["writeSummary"]>[1]["stories"][number] => ({
+  id,
+  title: `story ${id}`,
+  description: "d",
+  acceptanceCriteria: Array.from({ length: criteria }, (_, i) => `c${i}`),
+  blockedBy,
+  status: "tested",
+  reviewResult: { score: 100, note: "" },
+  testResult: { score: 100, note: "" },
+});
+
+it("keeps a refused verdict write out of the trajectory", async () => {
+  // update_story_fields rejects for a bad schema, a missing file, an unknown id
+  // or a failed post-merge validation, all after the start event has fired.
+  // recording on start put scores in the trajectory that never reached disk.
+  const collector = new SummaryCollector();
+  const { session, emit } = fakeSession();
+  collector.attach(agent("reviewer"), session, 1, 1);
+
+  emit({
+    type: "tool_execution_start",
+    toolCallId: "a",
+    toolName: "update_story_fields",
+    args: { id: 1, fields: { reviewResult: { score: 90 } } },
+  } as unknown as AgentSessionEvent);
+  emit({
+    type: "tool_execution_end",
+    toolCallId: "a",
+    toolName: "update_story_fields",
+    isError: true,
+  } as unknown as AgentSessionEvent);
+
+  emit({
+    type: "tool_execution_start",
+    toolCallId: "b",
+    toolName: "update_story_fields",
+    args: { id: 1, fields: { reviewResult: { score: 75 } } },
+  } as unknown as AgentSessionEvent);
+  emit({
+    type: "tool_execution_end",
+    toolCallId: "b",
+    toolName: "update_story_fields",
+    isError: false,
+  } as unknown as AgentSessionEvent);
+
+  const summary = await collectSummary(collector, [storyFixture(1)]);
+  // only the write that landed
+  assert.deepEqual(summary.stories[0].reviewTrajectory, [75]);
+});
+
+it("files a verdict under the story it names, not the story in flight", async () => {
+  const collector = new SummaryCollector();
+  const { session, emit } = fakeSession();
+  collector.attach(agent("reviewer"), session, 1, 1);
+
+  emit({
+    type: "tool_execution_start",
+    toolCallId: "a",
+    toolName: "update_story_fields",
+    args: { id: 2, fields: { reviewResult: { score: 60 } } },
+  } as unknown as AgentSessionEvent);
+  emit({
+    type: "tool_execution_end",
+    toolCallId: "a",
+    toolName: "update_story_fields",
+    isError: false,
+  } as unknown as AgentSessionEvent);
+
+  const summary = await collectSummary(collector, [
+    storyFixture(1),
+    storyFixture(2),
+  ]);
+  assert.deepEqual(summary.stories[0].reviewTrajectory, []);
+  assert.deepEqual(summary.stories[1].reviewTrajectory, [60]);
+});
+
+it("keeps silent-gate counts on a story that recovered", async () => {
+  // routing these through noteBlocked meant they survived only on stories that
+  // failed, which is the one case where they explain the least.
+  const collector = new SummaryCollector();
+  collector.noteGateOutcome({ storyId: 1, gateRetries: 1, silentGates: 2 });
+
+  const summary = await collectSummary(collector, [storyFixture(1)]);
+  assert.equal(summary.stories[0].status, "tested");
+  assert.equal(summary.stories[0].silentGates, 2);
+  assert.equal(summary.stories[0].gateRetries, 1);
+});
+
+it("measures the plan's shape", async () => {
+  const collector = new SummaryCollector();
+  // 1 -> 2 -> 3 is a chain of depth 3; 4 stands alone.
+  const summary = await collectSummary(collector, [
+    storyFixture(1, [], 4),
+    storyFixture(2, [1], 2),
+    storyFixture(3, [2], 2),
+    storyFixture(4, [], 0),
+  ]);
+
+  assert.equal(summary.plan?.storyCount, 4);
+  assert.equal(summary.plan?.maxChainDepth, 3);
+  assert.equal(summary.plan?.rootStories, 2);
+  assert.equal(summary.plan?.criteriaPerStory, 2);
+  assert.equal(summary.plan?.firstStoryCriteria, 4);
+});

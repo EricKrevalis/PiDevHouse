@@ -64,6 +64,61 @@ async function runAgent(
   ).run(storyId, iteration, signal);
 }
 
+interface GateOutcome {
+  result?: ValidationResult;
+  silent: boolean;
+  retries: number;
+}
+
+// runs a gate and, when it writes no verdict, runs it once more before the
+// iteration gives up. the old answer to "the gate told us nothing" was another
+// developer pass, which rewrites working code to recover a missing write and
+// spends the most expensive agent in the loop on it. the rerun is a fresh
+// agent, so it gets a new session and a new tool-call budget, which is also
+// what clears an exhausted budget that refused the closing write.
+async function runGate(params: {
+  agentClass: typeof ReviewerAgent | typeof TesterAgent;
+  variant: "review" | "test";
+  storyId: number;
+  workspace: Workspace;
+  modelProvider: ModelProvider;
+  config: Config;
+  iteration: number;
+  runId: string;
+  dependencies: AgentContext;
+  signal?: AbortSignal;
+}): Promise<GateOutcome> {
+  const before = await readValidationResult(
+    params.dependencies.storyStore,
+    params.storyId,
+    params.variant,
+  );
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await runAgent(
+      params.agentClass,
+      params.storyId,
+      params.workspace,
+      params.modelProvider,
+      params.config,
+      params.iteration,
+      params.runId,
+      params.dependencies,
+      params.signal,
+    );
+    const after = await readValidationResult(
+      params.dependencies.storyStore,
+      params.storyId,
+      params.variant,
+    );
+    if (after !== undefined && !sameResult(before, after)) {
+      return { result: after, silent: false, retries: attempt };
+    }
+  }
+  // both attempts ended without a verdict, so the caller falls back to a
+  // developer iteration. retries counts the rerun, not the first attempt.
+  return { silent: true, retries: 1 };
+}
+
 export class StoryRunner {
   constructor(private readonly messagePublisher: MessagePublisher) {}
 
@@ -76,9 +131,60 @@ export class StoryRunner {
     dependencies: AgentContext,
     signal?: AbortSignal,
   ): Promise<void> {
+    let gateRetries = 0;
+    let silentGates = 0;
+    try {
+      await this.runStory({
+        storyId,
+        workspace,
+        modelProvider,
+        config,
+        runId,
+        dependencies,
+        signal,
+        countRetry: (count: number): void => {
+          gateRetries += count;
+        },
+        countSilent: (): void => {
+          silentGates += 1;
+        },
+      });
+    } finally {
+      // in a finally so the counts survive an abort, and outside markBlocked so
+      // a story that hit a silent gate and then passed still reports it.
+      dependencies.summaryCollector.noteGateOutcome({
+        storyId,
+        gateRetries,
+        silentGates,
+      });
+    }
+  }
+
+  private async runStory({
+    storyId,
+    workspace,
+    modelProvider,
+    config,
+    runId,
+    dependencies,
+    signal,
+    countRetry,
+    countSilent,
+  }: {
+    storyId: number;
+    workspace: Workspace;
+    modelProvider: ModelProvider;
+    config: Config;
+    runId: string;
+    dependencies: AgentContext;
+    signal?: AbortSignal;
+    countRetry: (count: number) => void;
+    countSilent: () => void;
+  }): Promise<void> {
     const reviewPlateau = { best: -Infinity, flat: 0 };
     const testPlateau = { best: -Infinity, flat: 0 };
     let silentGates = 0;
+    let gateRetries = 0;
     for (let iteration = 1; iteration <= config.maxIterations; iteration++) {
       await runAgent(
         DeveloperAgent,
@@ -101,13 +207,9 @@ export class StoryRunner {
       }
 
       if (config.reviewerEnabled) {
-        const before = await readValidationResult(
-          dependencies.storyStore,
-          storyId,
-          "review",
-        );
-        await runAgent(
-          ReviewerAgent,
+        const gate = await runGate({
+          agentClass: ReviewerAgent,
+          variant: "review",
           storyId,
           workspace,
           modelProvider,
@@ -116,14 +218,13 @@ export class StoryRunner {
           runId,
           dependencies,
           signal,
-        );
-        const after = await readValidationResult(
-          dependencies.storyStore,
-          storyId,
-          "review",
-        );
-        if (after === undefined || sameResult(before, after)) {
+        });
+        gateRetries += gate.retries;
+        countRetry(gate.retries);
+        const after = gate.result;
+        if (gate.silent || after === undefined) {
           silentGates++;
+          countSilent();
           continue;
         }
         this.publishScore({
@@ -164,13 +265,9 @@ export class StoryRunner {
       }
 
       if (config.testerEnabled) {
-        const before = await readValidationResult(
-          dependencies.storyStore,
-          storyId,
-          "test",
-        );
-        await runAgent(
-          TesterAgent,
+        const gate = await runGate({
+          agentClass: TesterAgent,
+          variant: "test",
           storyId,
           workspace,
           modelProvider,
@@ -179,13 +276,11 @@ export class StoryRunner {
           runId,
           dependencies,
           signal,
-        );
-        const after = await readValidationResult(
-          dependencies.storyStore,
-          storyId,
-          "test",
-        );
-        if (after !== undefined && !sameResult(before, after)) {
+        });
+        gateRetries += gate.retries;
+        countRetry(gate.retries);
+        const after = gate.result;
+        if (!gate.silent && after !== undefined) {
           this.publishScore({
             runId,
             storyId,
@@ -217,6 +312,7 @@ export class StoryRunner {
           }
         } else {
           silentGates++;
+          countSilent();
         }
       }
     }
@@ -229,10 +325,14 @@ export class StoryRunner {
       this.messagePublisher,
       silentGates > 0
         ? "iteration budget exhausted without passing the enabled gates; " +
-          `${silentGates} gate run(s) ended without a written verdict`
+          // a silent gate is the whole gate giving up, which after the rerun is
+          // two invocations, so this counts gates and names the reruns apart.
+          `${silentGates} gate(s) wrote no verdict` +
+          (gateRetries > 0
+            ? `, including ${gateRetries} rerun(s) that also wrote none`
+            : "")
         : undefined,
       dependencies.summaryCollector,
-      silentGates,
     );
   }
 
@@ -261,13 +361,8 @@ async function markBlocked(
   messagePublisher: MessagePublisher,
   reason = "iteration budget exhausted without passing the enabled gates",
   summaryCollector?: {
-    noteBlocked(params: {
-      storyId: number;
-      reason: string;
-      silentGates?: number;
-    }): void;
+    noteBlocked(params: { storyId: number; reason: string }): void;
   },
-  silentGates?: number,
 ): Promise<void> {
   const state = await storyStore.read();
   const story = state?.stories.find((item) => item.id === storyId);
@@ -293,7 +388,7 @@ async function markBlocked(
       detail: reason,
       timestamp: new Date().toISOString(),
     });
-    summaryCollector?.noteBlocked({ storyId, reason, silentGates });
+    summaryCollector?.noteBlocked({ storyId, reason });
   }
 }
 

@@ -28,6 +28,18 @@ export interface AgentUsage {
   longestInvocationMs: number;
   // longest single tool call, the signal for a hung command holding the budget.
   longestToolCallMs: number;
+  // tool calls the scope guard refused before they ran: out of scope, wrong
+  // write target, or over the per-invocation budget. scope refusals only: a
+  // command the bash denylist refuses is rewritten to a failing echo and still
+  // runs as a tool call, so it lands in sandboxDenials instead.
+  rejectedToolCalls: number;
+  // tool calls that passed the guard and ran. the denominator for any
+  // per-tool-call rate: `calls` counts assistant turns, not tool calls.
+  executedToolCalls: number;
+  // commands the bash denylist refused. these succeed as tool calls while doing
+  // no work, which hides them from rejectedToolCalls despite being the larger
+  // waste channel (223 in a single run before the sandbox prompt section).
+  sandboxDenials: number;
 }
 
 export interface StorySummary {
@@ -42,6 +54,30 @@ export interface StorySummary {
   blockedReason?: string;
   // gate runs that ended without writing a verdict for this story.
   silentGates?: number;
+  // gate reruns spent recovering a silent gate, before falling back to another
+  // developer iteration.
+  gateRetries?: number;
+  // never attempted: a story this one depends on blocked first. without this a
+  // run that skipped half its stories reads the same as one that tried them all.
+  skippedByDependency?: boolean;
+}
+
+// what the product owner produced, measured. planning is the stage every later
+// stage inherits its cost from, and it was the only one leaving no trace beyond
+// the stories themselves: a run could not say whether it failed because the
+// model could not build the thing or because the plan front-loaded every risk
+// into story 1.
+export interface PlanShape {
+  storyCount: number;
+  // longest chain of blockedBy edges. 1 means fully independent stories, n
+  // means a linked list where one blocked story strands everything after it.
+  maxChainDepth: number;
+  // stories nothing blocks, so the first scheduling pass can start them. more
+  // than one is the only way the runner ever has a choice.
+  rootStories: number;
+  criteriaPerStory: number;
+  // criteria on the story scheduled first, the usual place a run dies.
+  firstStoryCriteria: number;
 }
 
 // the independent variables of a run. without these the artifact cannot say
@@ -67,6 +103,8 @@ export interface Summary {
   environment: RunEnvironment;
   agents: Record<string, AgentUsage>;
   stories: StorySummary[];
+  // absent when the product owner never produced a valid plan.
+  plan?: PlanShape;
   error?: string;
   failureDetail?: string;
 }

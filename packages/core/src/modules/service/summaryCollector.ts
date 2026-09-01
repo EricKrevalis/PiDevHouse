@@ -14,11 +14,22 @@ interface StoryTrack {
   testTrajectory: number[];
 }
 
+// a verdict write in flight: its args, held from the start event until the end
+// event says whether it landed.
+interface PendingVerdict {
+  storyId: number;
+  reviewScore?: number;
+  testScore?: number;
+}
+
 interface RunState {
   agents: Map<string, AgentUsage>;
   tracks: Map<number, StoryTrack>;
   blockedReasons: Map<number, string>;
   silentGates: Map<number, number>;
+  gateRetries: Map<number, number>;
+  skipped: Set<number>;
+  pendingVerdicts: Map<string, PendingVerdict>;
 }
 
 type RunMetadata = Omit<Summary, "agents" | "stories"> & {
@@ -36,6 +47,9 @@ function freshUsage(): AgentUsage {
     timedOutInvocations: 0,
     longestInvocationMs: 0,
     longestToolCallMs: 0,
+    rejectedToolCalls: 0,
+    executedToolCalls: 0,
+    sandboxDenials: 0,
   };
 }
 
@@ -45,17 +59,50 @@ export class SummaryCollector {
     tracks: new Map(),
     blockedReasons: new Map(),
     silentGates: new Map(),
+    gateRetries: new Map(),
+    skipped: new Set(),
+    pendingVerdicts: new Map(),
   };
 
-  noteBlocked(params: {
-    storyId: number;
-    reason: string;
-    silentGates?: number;
-  }): void {
+  // silentGates and gateRetries do not come through here: they are recorded by
+  // noteGateOutcome from the story runner's finally, so they survive on stories
+  // that recovered and on runs that aborted.
+  noteBlocked(params: { storyId: number; reason: string }): void {
     this.state.blockedReasons.set(params.storyId, params.reason);
-    if (params.silentGates !== undefined) {
+  }
+
+  // written from the story runner's finally, so a story that hit silent gates
+  // and then recovered keeps the evidence. routing these only through
+  // noteBlocked meant they survived only on stories that failed, which is the
+  // one case where they explain the least.
+  noteGateOutcome(params: {
+    storyId: number;
+    gateRetries: number;
+    silentGates: number;
+  }): void {
+    if (params.gateRetries > 0) {
+      this.state.gateRetries.set(params.storyId, params.gateRetries);
+    }
+    if (params.silentGates > 0) {
       this.state.silentGates.set(params.storyId, params.silentGates);
     }
+  }
+
+  // a story the workflow never reached: a dependency blocked, or the run ended
+  // before its turn came up.
+  noteSkippedByDependency(storyId: number): void {
+    this.state.skipped.add(storyId);
+  }
+
+  noteToolCallBudget(
+    agentName: string,
+    budget: { executed: number; rejected: number; sandboxDenials?: number },
+  ): void {
+    const usage = this.state.agents.get(agentName) ?? freshUsage();
+    usage.rejectedToolCalls += budget.rejected;
+    usage.executedToolCalls += budget.executed;
+    usage.sandboxDenials += budget.sandboxDenials ?? 0;
+    this.state.agents.set(agentName, usage);
   }
 
   attach(
@@ -153,26 +200,95 @@ export class SummaryCollector {
     if (typeof iteration === "number") {
       track.iterations = Math.max(track.iterations, iteration);
     }
+    // the args live on the start event and the outcome on the end event, so a
+    // verdict is held here until its call returns. only the start event was
+    // read before, which recorded scores that never reached disk:
+    // update_story_fields still rejects for a bad schema, a missing
+    // stories.json, an unknown id, or a failed post-merge validation, all after
+    // the start event has fired. a trajectory has to be the story's persisted
+    // history, not what an agent tried to write.
     if (
       event.type === "tool_execution_start" &&
       event.toolName === "update_story_fields"
     ) {
-      const fields = event.args?.fields;
-      if (typeof fields?.reviewResult?.score === "number") {
-        track.reviewTrajectory.push(fields.reviewResult.score);
-      }
-      if (typeof fields?.testResult?.score === "number") {
-        track.testTrajectory.push(fields.testResult.score);
+      const target = event.args?.id;
+      state.pendingVerdicts.set(event.toolCallId, {
+        // the id the call names, not the story the agent was launched for: a
+        // verdict written to another story belongs to that story's trajectory.
+        storyId: typeof target === "number" ? target : storyId,
+        reviewScore: event.args?.fields?.reviewResult?.score,
+        testScore: event.args?.fields?.testResult?.score,
+      });
+    }
+    if (event.type === "tool_execution_end") {
+      const pending = state.pendingVerdicts.get(event.toolCallId);
+      if (pending !== undefined) {
+        state.pendingVerdicts.delete(event.toolCallId);
+        if (event.isError !== true) {
+          const targetTrack =
+            pending.storyId === storyId
+              ? track
+              : (state.tracks.get(pending.storyId) ?? {
+                  iterations: 0,
+                  reviewTrajectory: [],
+                  testTrajectory: [],
+                });
+          if (typeof pending.reviewScore === "number") {
+            targetTrack.reviewTrajectory.push(pending.reviewScore);
+          }
+          if (typeof pending.testScore === "number") {
+            targetTrack.testTrajectory.push(pending.testScore);
+          }
+          if (pending.storyId !== storyId) {
+            state.tracks.set(pending.storyId, targetTrack);
+          }
+        }
       }
     }
     state.tracks.set(storyId, track);
   }
 
+  // the plan's structure, derived from the stories at teardown. computed here
+  // rather than at planning time so it also covers runs that died later.
+  private planShape(stories: Story[]): Summary["plan"] {
+    if (stories.length === 0) return undefined;
+    const blockers = new Map(stories.map((s) => [s.id, s.blockedBy]));
+    const depths = new Map<number, number>();
+    const depth = (id: number, seen: Set<number>): number => {
+      const cached = depths.get(id);
+      if (cached !== undefined) return cached;
+      // a cycle should be impossible past the schema, but this runs on
+      // historical files too, so it must not recurse forever.
+      if (seen.has(id)) return 0;
+      seen.add(id);
+      const parents = blockers.get(id) ?? [];
+      const value =
+        parents.length === 0
+          ? 1
+          : 1 + Math.max(...parents.map((parent) => depth(parent, seen)));
+      seen.delete(id);
+      depths.set(id, value);
+      return value;
+    };
+    const criteria = stories.map((s) => s.acceptanceCriteria.length);
+    const first = stories.find((s) => s.blockedBy.length === 0) ?? stories[0];
+    return {
+      storyCount: stories.length,
+      maxChainDepth: Math.max(...stories.map((s) => depth(s.id, new Set()))),
+      rootStories: stories.filter((s) => s.blockedBy.length === 0).length,
+      criteriaPerStory:
+        criteria.reduce((sum, n) => sum + n, 0) / stories.length,
+      firstStoryCriteria: first.acceptanceCriteria.length,
+    };
+  }
+
   async writeSummary(runDir: string, metadata: RunMetadata): Promise<void> {
     const { stories, ...run } = metadata;
+    const plan = this.planShape(stories);
     const summary: Summary = {
       ...run,
       ...this.collect(this.state, stories, metadata.config),
+      ...(plan ? { plan } : {}),
     };
     await writeFile(
       resolve(runDir, "summary.json"),
@@ -200,6 +316,7 @@ export class SummaryCollector {
         };
         const blockedReason = state.blockedReasons.get(story.id);
         const silentGates = state.silentGates.get(story.id);
+        const gateRetries = state.gateRetries.get(story.id);
         return {
           id: story.id,
           title: story.title,
@@ -207,6 +324,10 @@ export class SummaryCollector {
           iterations: track.iterations,
           ...(blockedReason ? { blockedReason } : {}),
           ...(silentGates !== undefined ? { silentGates } : {}),
+          ...(gateRetries !== undefined ? { gateRetries } : {}),
+          ...(state.skipped.has(story.id)
+            ? { skippedByDependency: true }
+            : {}),
           ...(reviewerEnabled
             ? {
                 reviewScore: story.reviewResult.score,

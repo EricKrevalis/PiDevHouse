@@ -15,11 +15,19 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SessionManager: { create: () => ({}), inMemory: () => ({}) },
 }));
 
-const mocks = vi.hoisted(() => ({ testerSilent: false }));
+const mocks = vi.hoisted(() => ({
+  testerSilent: false,
+  // silences only the first tester attempt, so a rerun can recover it.
+  testerSilentOnce: false,
+  testerRuns: 0,
+  developerRuns: 0,
+}));
 
 vi.mock("../../modules/agents/developer.agent.ts", () => ({
   DeveloperAgent: class {
-    async run(): Promise<void> {}
+    async run(): Promise<void> {
+      mocks.developerRuns += 1;
+    }
   },
 }));
 
@@ -71,7 +79,9 @@ vi.mock("../../modules/agents/tester.agent.ts", () => ({
     }
 
     async run(): Promise<void> {
+      mocks.testerRuns += 1;
       if (mocks.testerSilent) return;
+      if (mocks.testerSilentOnce && mocks.testerRuns === 1) return;
       const state = await this.dependencies.storyStore.read();
       await this.dependencies.storyStore.write(
         (state?.stories ?? []).map((story) =>
@@ -147,6 +157,9 @@ async function testContext(): Promise<{
     eventBridge: {} as AgentContext["eventBridge"],
     summaryCollector: {
       noteBlocked: () => {},
+      noteGateOutcome: () => {},
+      noteSkippedByDependency: () => {},
+      noteToolCallBudget: () => {},
     } as unknown as AgentContext["summaryCollector"],
     storyStore,
     messagePublisher: { publish: () => {} },
@@ -227,5 +240,46 @@ it("blocks a silent tester on the budget without counting a plateau", async () =
 
   assert.equal((await storyStore.read())?.stories[0].status, "blocked");
   const blocked = events.find((event) => event.type === "story_blocked");
-  assert.match(blocked?.detail ?? "", /2 gate run\(s\) ended without a written verdict/);
+  assert.match(blocked?.detail ?? "", /2 gate\(s\) wrote no verdict/);
+});
+
+it("reruns a silent gate instead of spending another developer iteration", async () => {
+  const { dependencies, storyStore, workspace } = await testContext();
+  mocks.testerSilentOnce = true;
+  mocks.testerRuns = 0;
+  mocks.developerRuns = 0;
+  const retries: number[] = [];
+  const counting: AgentContext = {
+    ...dependencies,
+    summaryCollector: {
+      ...dependencies.summaryCollector,
+      noteBlocked: () => {},
+      noteGateOutcome: ({ gateRetries }: { gateRetries: number }) => {
+        retries.push(gateRetries);
+      },
+    } as unknown as AgentContext["summaryCollector"],
+  };
+  try {
+    await new StoryRunner({ publish: () => {} }).run(
+      1,
+      workspace,
+      modelProvider,
+      Config.from({
+        reviewerEnabled: true,
+        testerEnabled: true,
+        maxIterations: 2,
+      }),
+      "run",
+      counting,
+    );
+  } finally {
+    mocks.testerSilentOnce = false;
+  }
+
+  assert.equal((await storyStore.read())?.stories[0].status, "tested");
+  // the rerun recovered the verdict inside the first iteration, so the
+  // expensive agent never ran a second time.
+  assert.equal(mocks.testerRuns, 2);
+  assert.equal(mocks.developerRuns, 1);
+  assert.deepEqual(retries, [1]);
 });

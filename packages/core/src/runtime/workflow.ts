@@ -156,6 +156,23 @@ export class WorkflowService implements WorkflowRunner {
     signal?.addEventListener("abort", forwardCancellation, { once: true });
     if (signal?.aborted) forwardCancellation();
     const workflowSignal = cancellation.signal;
+    // the ceiling above the per-invocation budget. a run that reaches it is a
+    // timeout, not a cancellation: nobody asked it to stop, it ran out of clock.
+    let deadlineReached = false;
+    const deadline =
+      config.maxRunMinutes > 0
+        ? setTimeout(
+            () => {
+              deadlineReached = true;
+              cancellation.abort(
+                new Error(
+                  `Run timeout: exceeded the ${config.maxRunMinutes} minute budget`,
+                ),
+              );
+            },
+            config.maxRunMinutes * 60_000,
+          )
+        : undefined;
     const summaryCollector = new SummaryCollector();
     const timer = new Timer(runId, this.dependencies.messagePublisher);
     timer.start();
@@ -243,10 +260,15 @@ export class WorkflowService implements WorkflowRunner {
           );
 
           if (ready.length === 0) {
+            const skipped = stories.filter((story) => story.status === "todo");
             outcome = "incomplete";
             failed = true;
             finalStatus = "incomplete";
-            finalDetail = "Remaining stories cannot make progress";
+            finalDetail =
+              "Remaining stories cannot make progress" +
+              (skipped.length > 0
+                ? `; ${skipped.length} story(s) never attempted`
+                : "");
             failureMode = stories.some((s) => s.status === "blocked") ? "recovery" : "dependency";
             failureDetail = finalDetail;
             break;
@@ -295,14 +317,35 @@ export class WorkflowService implements WorkflowRunner {
         if (latestState !== null) stories = latestState.stories;
       }
       errorMessage = caught instanceof Error ? caught.message : String(caught);
-      outcome = signal?.aborted ? "cancelled" : errorMessage.toLowerCase().includes("timeout") ? "timeout" : "error";
+      // the run deadline outranks the abort it raises: the signal is only the
+      // mechanism, and recording it as cancelled would hide a real timeout.
+      const cancelledByUser = signal?.aborted === true && !deadlineReached;
+      const timedOut =
+        deadlineReached || errorMessage.toLowerCase().includes("timeout");
+      outcome = cancelledByUser ? "cancelled" : timedOut ? "timeout" : "error";
       failed = true;
-      finalStatus = signal?.aborted ? "cancelled" : "failed";
-      failureMode = signal?.aborted ? "cancelled" : errorMessage.toLowerCase().includes("timeout") ? "timeout" : "execution";
+      finalStatus = cancelledByUser ? "cancelled" : "failed";
+      failureMode = cancelledByUser
+        ? "cancelled"
+        : timedOut
+          ? "timeout"
+          : "execution";
       failureDetail = errorMessage;
       finalDetail = errorMessage;
     } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
       timer.stop();
+      // any story still on todo at teardown was never attempted: a dependency
+      // stalled, or the run ended first (deadline, abort, thrown error). done
+      // here rather than on the dependency-stall path alone, because the paths
+      // that skip the most stories are exactly the ones that exit early, and a
+      // run that skipped half its scope must not read like one that tried
+      // everything.
+      for (const story of stories) {
+        if (story.status === "todo") {
+          summaryCollector.noteSkippedByDependency(story.id);
+        }
+      }
       // derive failure classification if not already set (e.g. blocked stories after loop)
       if (failureMode === "none") {
         const derived = deriveFailureMode({

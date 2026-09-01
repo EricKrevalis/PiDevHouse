@@ -15,7 +15,9 @@ import type { ModelProviderFactory } from "../../modules/model/providers/modelPr
 import type { Story } from "../../modules/model/story.model.ts";
 import type { WorkflowAgentFactory } from "../../modules/model/workflowAgentFactory.model.ts";
 import { StoryRunner } from "../storyRunner.ts";
-import { WorkflowService } from "../workflow.ts";
+import { slugify, WorkflowService } from "../workflow.ts";
+
+const DEFAULT_OUTPUT_ROOT = resolve(import.meta.dirname, "../../../../../output");
 
 function story(id = 1, status: Story["status"] = "implemented"): Story {
   return {
@@ -56,6 +58,37 @@ class TestAgentFactory implements WorkflowAgentFactory {
 
 }
 
+// a product owner that outlives the run budget, so the deadline is what ends
+// the run rather than the agent's own timeout.
+class HangingAgentFactory extends TestAgentFactory {
+  override createProductOwner(
+    options: Parameters<WorkflowAgentFactory["createProductOwner"]>[0],
+  ) {
+    return {
+      run: async (
+        _storyId?: number,
+        _iteration?: number,
+        signal?: AbortSignal,
+      ): Promise<void> =>
+        new Promise<void>((_resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("not reached")), 30_000);
+          signal?.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(
+                signal.reason instanceof Error
+                  ? signal.reason
+                  : new Error("aborted"),
+              );
+            },
+            { once: true },
+          );
+        }),
+    };
+  }
+}
+
 class TestProviderFactory implements ModelProviderFactory {
   async create(): Promise<ModelProvider> {
     return {
@@ -64,6 +97,53 @@ class TestProviderFactory implements ModelProviderFactory {
     } as ModelProvider;
   }
 }
+
+it("ends a run that outlives its budget as a timeout, not a cancellation", async () => {
+  const eventBus = new EventBus();
+  const events: Message[] = [];
+  const subscriber: MessageSubscriber = {
+    handle: (message) => events.push(message),
+  };
+  eventBus.subscribe(subscriber);
+  const workflow = new WorkflowService({
+    messagePublisher: eventBus,
+    agentEventBridge: new AgentEventBridge(eventBus),
+    storyRunner: new StoryRunner(eventBus),
+    providerFactory: new TestProviderFactory(),
+    agentFactory: new HangingAgentFactory(),
+  });
+
+  try {
+    assert.equal(
+      await workflow.run(
+        Config.from({
+          request: "run budget ceiling",
+          reviewerEnabled: false,
+          testerEnabled: false,
+          maxIterations: 1,
+          maxRunMinutes: 0.02,
+        }),
+        `deadline-${crypto.randomUUID()}`,
+      ),
+      true,
+    );
+
+    const status = events.find(
+      (message) => message.type === "run_status" && message.status === "failed",
+    );
+    assert.equal(status?.type, "run_status");
+    assert.equal(status?.outcome, "timeout");
+    assert.match(status?.error ?? "", /exceeded the 0\.02 minute budget/);
+  } finally {
+    eventBus.unsubscribe(subscriber);
+    // the failed run still wrote a run directory. left behind, it accumulates
+    // and reclassifyRuns.ts counts these fixtures as real runs.
+    await rm(resolve(DEFAULT_OUTPUT_ROOT, slugify("run budget ceiling")), {
+      recursive: true,
+      force: true,
+    });
+  }
+}, 20_000);
 
 it("publishes completed only after the guide and summary finish", async () => {
   const eventBus = new EventBus();
