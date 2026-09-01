@@ -21,3 +21,16 @@ it("derives the terminal status from enabled gates", () => {
     "implemented",
   );
 });
+
+it("gives both entry points the same defaults", () => {
+  // from() said 3 iterations and fromArgs() said 4, so every run started
+  // through the HTTP API silently got one iteration fewer than the CLI.
+  const cli = Config.fromArgs(["build a thing"]);
+  const api = Config.from({ request: "build a thing" });
+
+  assert.equal(api.maxIterations, cli.maxIterations);
+  assert.equal(api.minScore, cli.minScore);
+  assert.equal(api.timeoutMinutes, cli.timeoutMinutes);
+  assert.equal(api.maxRunMinutes, cli.maxRunMinutes);
+  assert.equal(cli.maxIterations, 4);
+});
