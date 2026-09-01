@@ -14,13 +14,15 @@
 #   repeat prompts in 0.3-0.5s vs 2.1-9.7s (incl. one outright miss).
 #
 # Tuning rationale:
-# - NUM_PARALLEL=2   two 32k KV slots, one per agent prefix (developer/
-#                    reviewer/tester alternate); with 1 slot every agent
-#                    switch re-prefills the whole session -> the 30s TTFT.
-#                    Bump to 3 only if VRAM headroom allows.
-# - CONTEXT_LENGTH=65536  total budget split across slots (32k each); must
-#                    match contextWindow in packages/core ollamaProvider.model.ts
-#                    (preflight enforces equality via /props + /slots).
+# - NUM_PARALLEL=1   single 64k slot. The workflow is serial (one agent
+#                    session at a time) and sessions are fresh per agent/
+#                    iteration, so a second slot only idles. The 64k window
+#                    keeps contexts under the compaction threshold
+#                    (contextWindow - reserveTokens), so prefixes are never
+#                    rewritten and the server KV cache stays hot.
+# - CONTEXT_LENGTH=65536  single-slot context; must match contextWindow in
+#                    packages/core llamaProvider.model.ts (preflight
+#                    enforces this via /slots).
 # - KV q8_0          q4_0 degrades quality at 30k+ context; q8_0 is ~lossless.
 # - --cache-ram +    evicted sessions spill to host RAM (754GB available) and
 #   --cache-reuse    partial prefixes (shared TEAM_PREFIX) are reused, killing
@@ -34,7 +36,7 @@
 set -euo pipefail
 
 MODEL="${MODEL:-$HOME/.local/share/qwen38/models/qwen3.8-27b-UD-IQ3_S.gguf}"
-NUM_PARALLEL="${NUM_PARALLEL:-2}"
+NUM_PARALLEL="${NUM_PARALLEL:-1}"
 CONTEXT_LENGTH="${CONTEXT_LENGTH:-65536}"
 PORT="${PORT:-8080}"
 RESTART="${RESTART:-0}"

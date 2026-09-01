@@ -95,7 +95,8 @@ export async function runStory(
       await developer.close?.();
     }
     if (storyRepository.getStory(story.id)?.status !== "implemented") {
-      return "incomplete";
+      if (iteration === config.maxIteration) return "incomplete";
+      continue;
     }
 
     const reviewed = await validate(
@@ -104,15 +105,25 @@ export async function runStory(
       "review",
       iteration,
     );
-    if (!reviewed) return "incomplete";
-    if (reviewed.reviewResult.score < config.minScore) continue;
-    if (reviewed.status !== "approved") return "incomplete";
+    if (
+      !reviewed ||
+      reviewed.reviewResult.score < config.minScore ||
+      reviewed.status !== "approved"
+    ) {
+      if (iteration === config.maxIteration) return "incomplete";
+      continue;
+    }
 
     const tested = await validate(TesterAgent, "tester", "test", iteration);
-    if (!tested) return "incomplete";
-    if (tested.testResult.score === -1) return "infrastructure";
-    if (tested.testResult.score < config.minScore) continue;
-    if (tested.status !== "tested") return "incomplete";
+    if (tested?.testResult.score === -1) return "infrastructure";
+    if (
+      !tested ||
+      tested.testResult.score < config.minScore ||
+      tested.status !== "tested"
+    ) {
+      if (iteration === config.maxIteration) return "incomplete";
+      continue;
+    }
 
     return "completed";
   }

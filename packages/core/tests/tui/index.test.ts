@@ -104,3 +104,20 @@ test("formats story context without a hash", () => {
     { type: "text", text: "score story 7 · review  80" },
   ]);
 });
+
+test("shows compaction events with reason", () => {
+  expect(
+    render([
+      { ...scope, type: "agent_start" },
+      { ...scope, storyId: 2, type: "compaction_end", reason: "threshold", aborted: false, willRetry: false },
+      { ...scope, type: "compaction_end", reason: "overflow", aborted: true, willRetry: true },
+    ]),
+  ).toEqual([
+    { type: "agent", agent: "developer" },
+    { type: "text", text: "" },
+    { type: "text", text: "compaction · developer · story 2 · threshold" },
+    { type: "text", text: "" },
+    { type: "text", text: "compaction · developer · overflow · aborted · retrying" },
+    { type: "text", text: "" },
+  ]);
+});

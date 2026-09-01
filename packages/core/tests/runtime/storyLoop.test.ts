@@ -133,7 +133,7 @@ test("allows the same review score after test-driven rework", async () => {
   expect(retries).toEqual([]);
 });
 
-test("stops before testing when a reviewer does not finalize", async () => {
+test("reports an incomplete review on the last iteration", async () => {
   const calls: string[] = [];
   runAgent = async (
     agentClass,
@@ -157,12 +157,14 @@ test("stops before testing when a reviewer does not finalize", async () => {
   expect(calls).toEqual([
     "DeveloperAgent",
     "ReviewerAgent",
+    "DeveloperAgent",
+    "ReviewerAgent",
   ]);
-  expect(retries).toHaveLength(1);
-  expect(prompts).toHaveLength(1);
+  expect(retries).toHaveLength(2);
+  expect(prompts).toHaveLength(2);
 });
 
-test("gives a silent developer one finalization prompt", async () => {
+test("retries a silent developer in a fresh session each iteration", async () => {
   const calls: string[] = [];
   runAgent = async (agentClass) => {
     calls.push(agentClass.name);
@@ -170,8 +172,9 @@ test("gives a silent developer one finalization prompt", async () => {
   };
 
   expect(await run()).toBe("incomplete");
-  expect(calls).toEqual(["DeveloperAgent"]);
-  expect(retries).toHaveLength(1);
+  expect(calls).toEqual(["DeveloperAgent", "DeveloperAgent"]);
+  expect(retries).toHaveLength(2);
+  expect(prompts).toHaveLength(2);
   expect(prompts[0]).toContain('update_story_status with "implemented"');
 });
 

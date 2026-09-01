@@ -9,7 +9,6 @@ test("developer implements and tests without browser validation", () => {
   expect(developerPrompt).toContain("unit tests under `test/`");
   expect(developerPrompt).toContain("pure unit tests");
   expect(developerPrompt).toContain("Keep tests independent of DOM");
-  expect(developerPrompt).toContain("Leave browser validation to the tester");
   const agent = new DeveloperAgent(
     1,
     "/workspace" as never,

@@ -80,6 +80,17 @@ export function reduceActivity(
         },
         { type: "text", text: "" },
       ];
+    case "compaction_end": {
+      const parts = [
+        "compaction",
+        message.agent,
+        message.storyId === undefined ? undefined : `story ${message.storyId}`,
+        message.reason,
+        message.aborted ? "aborted" : undefined,
+        message.willRetry ? "retrying" : undefined,
+      ].filter((part): part is string => part !== undefined);
+      return [...entries, { type: "text", text: parts.join(" · ") }, { type: "text", text: "" }];
+    }
     case "tool_start":
       return [
         ...entries,

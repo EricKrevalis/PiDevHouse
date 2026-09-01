@@ -92,7 +92,7 @@ export async function run(
     while (storyRepository.getStories().some((s) => s.status !== "tested")) {
       const story = storyRepository.getReadyStory();
       if (!story) {
-        outcome = "no_ready";
+        if (outcome === "completed") outcome = "no_ready";
         break;
       }
       const storyOutcome = await runStory(
@@ -105,9 +105,12 @@ export async function run(
         summaryCollector,
         runSignal,
       );
-      if (storyOutcome !== "completed") {
-        outcome = storyOutcome;
+      if (storyOutcome === "infrastructure") {
+        outcome = "infrastructure";
         break;
+      }
+      if (storyOutcome !== "completed" && outcome === "completed") {
+        outcome = storyOutcome;
       }
     }
   } catch (err) {

@@ -18,7 +18,7 @@ function llamaServer(routes: Record<string, unknown> = {}) {
   server = Bun.serve({
     port: 0,
     routes: {
-      "/slots": Response.json([{ n_ctx: 32_768 }, { n_ctx: 32_768 }]),
+      "/slots": Response.json([{ n_ctx: 65_536 }]),
       ...routes,
     },
   });
