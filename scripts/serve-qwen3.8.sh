@@ -63,20 +63,26 @@ WRAP
 }
 
 daemon_alive() {
-  ! "$BIN/tailscale" status 2>&1 | grep -qi "connect to local tailscaled"
+  timeout 5 "$BIN/tailscale" status >/dev/null 2>&1
 }
 
 start_daemon() {
   pkill -f "tailscaled.*$TS_SOCK" 2>/dev/null || true
   rm -f "$TS_SOCK"
-  nohup "$BIN/tailscaled" --tun=userspace-networking --socket="$TS_SOCK" --state="$TS_DIR/state" >"$TS_DIR/daemon.log" 2>&1 &
+  nohup "$BIN/tailscaled" --tun=userspace-networking --socket="$TS_SOCK" --state="$TS_DIR/state" >"$TS_DIR/daemon.log" 2>&1 </dev/null &
   disown
   for _ in $(seq 1 20); do daemon_alive && return 0; sleep 1; done
   return 1
 }
 
 install
-if ! daemon_alive; then start_daemon; fi
+if ! daemon_alive; then
+  start_daemon || {
+    echo "tailscaled failed to start; tail of $TS_DIR/daemon.log:" >&2
+    tail -20 "$TS_DIR/daemon.log" >&2
+    exit 1
+  }
+fi
 "$BIN/tailscale" up --hostname=jupyter
 
 # --- llama-server, tuned for the multi-agent loop ---
