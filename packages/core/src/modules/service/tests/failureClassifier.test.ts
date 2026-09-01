@@ -18,6 +18,9 @@ function usage(overrides: Partial<AgentUsage> = {}): AgentUsage {
     timedOutInvocations: 0,
     longestInvocationMs: 0,
     longestToolCallMs: 0,
+    rejectedToolCalls: 0,
+    executedToolCalls: 1,
+    sandboxDenials: 0,
     ...overrides,
   };
 }
@@ -111,4 +114,33 @@ it("keeps a cancelled run out of both failure buckets", () => {
   assert.equal(isInfrastructureFailure(failureClass), false);
   // operator cancellation is evidence about neither the model nor the harness
   assert.equal(isValidRun(summary({ outcome: "cancelled" })), false);
+});
+
+it("charges a run-deadline kill to the harness, not the model", () => {
+  // the run clock, not any single invocation: no agent timed out on its own.
+  // classifying this as "model" charged the model for a ceiling the harness
+  // chose, and let a truncated duration into the comparable stats.
+  const deadline = summary({
+    outcome: "timeout",
+    failureMode: "timeout",
+    exitCode: 124,
+    agents: { developer: usage({ timedOutInvocations: 0 }) },
+  });
+
+  assert.equal(classifyFailure(deadline), "run_deadline");
+  assert.equal(isInfrastructureFailure("run_deadline"), true);
+  assert.equal(isValidRun(deadline), false);
+});
+
+it("still blames the model when an invocation ran out its own budget", () => {
+  // an agent that used its whole per-invocation budget spent that time in the
+  // model, so this must stay distinct from the run deadline above.
+  const overrun = summary({
+    outcome: "timeout",
+    failureMode: "timeout",
+    agents: { tester: usage({ timedOutInvocations: 1 }) },
+  });
+
+  assert.equal(classifyFailure(overrun), "agent_timeout");
+  assert.equal(isValidRun(overrun), true);
 });

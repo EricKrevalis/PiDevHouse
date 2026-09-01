@@ -9,6 +9,7 @@ export type FailureClass =
   | "model"
   | "agent_timeout"
   | "tool_hang"
+  | "run_deadline"
   | "provider"
   | "cancelled"
   | "unknown";
@@ -20,6 +21,7 @@ const TOOL_HANG_MS = 300_000;
 // a run in one of these is not evidence about the model that produced it.
 const INFRASTRUCTURE: ReadonlySet<FailureClass> = new Set<FailureClass>([
   "tool_hang",
+  "run_deadline",
   "provider",
   "unknown",
 ]);
@@ -42,6 +44,13 @@ export function classifyFailure(summary: Summary | null): FailureClass {
   // in the model. that is model behaviour, not infrastructure.
   if (agents.some((usage) => usage.timedOutInvocations > 0)) {
     return "agent_timeout";
+  }
+  // the run-level clock, which no agent invocation reached on its own. the
+  // harness cut the run at maxRunMinutes, so what the model would have done
+  // with the rest of its budget is unknown. counting it against the model
+  // would charge it for a ceiling the harness chose, so this is infrastructure.
+  if (summary.outcome === "timeout" || summary.failureMode === "timeout") {
+    return "run_deadline";
   }
   if (summary.outcome === "error") return "provider";
   return "model";
